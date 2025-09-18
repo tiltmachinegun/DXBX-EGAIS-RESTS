@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DXBX EGAIS RESTS t.me/tiltmachinegun
 // @namespace    http://tampermonkey.net/
-// @version      1.9
+// @version      2.0
 // @description  Добавляет кнопку перехода на страницу бутылок, проверяет наличие в ТЗ, отображает shortMarkCode и генерирует DataMatrix
 // @author       t.me/tiltmachinegun
 // @downloadUrl   https://raw.githubusercontent.com/tiltmachinegun/DXBX-EGAIS-RESTS/refs/heads/main/DXBX%20EGAIS%20RESTS%20t.me-tiltmachinegun.js
