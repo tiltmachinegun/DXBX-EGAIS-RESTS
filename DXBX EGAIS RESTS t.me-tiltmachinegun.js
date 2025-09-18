@@ -4,6 +4,8 @@
 // @version      1.9
 // @description  Добавляет кнопку перехода на страницу бутылок, проверяет наличие в ТЗ, отображает shortMarkCode и генерирует DataMatrix
 // @author       t.me/tiltmachinegun
+// @downloadUrl   https://raw.githubusercontent.com/tiltmachinegun/DXBX-EGAIS-RESTS/refs/heads/main/DXBX%20EGAIS%20RESTS%20t.me-tiltmachinegun.js
+// @updateUrl     https://raw.githubusercontent.com/tiltmachinegun/DXBX-EGAIS-RESTS/refs/heads/main/DXBX%20EGAIS%20RESTS%20t.me-tiltmachinegun.js
 // @match        https://dxbx.ru/fe/egais/rests*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
