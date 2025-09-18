@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         DXBX EGAIS RESTS with Nomenclature Search
+// @name         DXBX EGAIS RESTS t.me/tiltmachinegun
 // @namespace    http://tampermonkey.net/
 // @version      3.1
 // @description  Добавляет кнопку перехода на страницу бутылок, проверяет наличие в ТЗ, отображает shortMarkCode, генерирует DataMatrix и добавляет поиск по номенклатуре
