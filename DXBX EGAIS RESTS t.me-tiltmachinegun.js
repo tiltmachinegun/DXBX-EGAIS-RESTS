@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         DXBX EGAIS RESTS t.me/tiltmachinegun
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.5
 // @description  Добавляет кнопку перехода на страницу бутылок, проверяет наличие в ТЗ, отображает shortMarkCode, генерирует DataMatrix и добавляет поиск по номенклатуре
 // @author       t.me/tiltmachinegun
 // @downloadUrl   https://raw.githubusercontent.com/tiltmachinegun/DXBX-EGAIS-RESTS/refs/heads/main/DXBX%20EGAIS%20RESTS%20t.me-tiltmachinegun.js
 // @updateUrl     https://raw.githubusercontent.com/tiltmachinegun/DXBX-EGAIS-RESTS/refs/heads/main/DXBX%20EGAIS%20RESTS%20t.me-tiltmachinegun.js
-// @match        https://dxbx.ru/fe/egais/rests*
+// @match        https://dxbx.ru/fe/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -677,6 +677,7 @@ markCell.querySelector('.copy-mark').addEventListener('click', function(e) {
     }
 
     function addNomenclatureButtons() {
+        if (!isTargetPage()) return;
         // Ищем только основные строки таблицы (не вложенные)
         const mainTable = document.querySelector('.ant-table-tbody:not(.restsstyled__ExpandedTableWrapper-sc-1oz76wz-5 .ant-table-tbody)');
 
@@ -743,6 +744,7 @@ markCell.querySelector('.copy-mark').addEventListener('click', function(e) {
     }
 
     async function addEgaisButtons() {
+        if (!isTargetPage()) return;
         const markElements = document.querySelectorAll('.strong-tablestyled__MarkItemWrapper-sc-1ppi8vp-1.gOhuPU');
 
         for (const markElement of markElements) {
@@ -1259,6 +1261,29 @@ markCell.querySelector('.copy-mark').addEventListener('click', function(e) {
             });
         }
     }
+        function isTargetPage() {
+        return window.location.href.includes('https://dxbx.ru/fe/egais/rests');
+    }
+
+    // Если не целевая страница - временно отключаем скрипт
+    if (!isTargetPage()) {
+        // Создаем наблюдатель за изменениями URL
+        const urlObserver = new MutationObserver(() => {
+            if (isTargetPage()) {
+                // Перезагружаем страницу при возврате на целевую
+                window.location.reload();
+            }
+        });
+
+        // Наблюдаем за изменениями в body (для SPA-навигации)
+        urlObserver.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+
+        return; // Прекращаем выполнение скрипта
+    }
+
 
     function init() {
         legalPersonId = GM_getValue('legalPersonId');
