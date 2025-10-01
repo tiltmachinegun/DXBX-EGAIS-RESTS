@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DXBX EGAIS RESTS t.me/tiltmachinegun
 // @namespace    http://tampermonkey.net/
-// @version      4.0
+// @version      5.0
 // @description  Добавляет кнопку перехода на страницу бутылок, проверяет наличие в ТЗ, отображает shortMarkCode, генерирует DataMatrix и добавляет поиск по номенклатуре
 // @author       t.me/tiltmachinegun
 // @downloadUrl   https://raw.githubusercontent.com/tiltmachinegun/DXBX-EGAIS-RESTS/refs/heads/main/DXBX%20EGAIS%20RESTS%20t.me-tiltmachinegun.js
@@ -564,10 +564,175 @@
             font-size: 12px;
             font-weight: 600;
         }
+
+        .orders-modal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 95%;
+            max-width: 1400px;
+            max-height: 90vh;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            z-index: 10000;
+            display: none;
+            flex-direction: column;
+        }
+
+        .orders-modal.active {
+            display: flex;
+        }
+
+        .order-item {
+            border: 1px solid #e8e8e8;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            padding: 12px;
+            background: #fafafa;
+        }
+
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e8e8e8;
+        }
+
+        .order-title {
+            font-weight: 600;
+            color: #1890ff;
+            cursor: pointer;
+        }
+
+        .order-title:hover {
+            text-decoration: underline;
+        }
+
+        .order-status {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .status-created {
+            background: #e6f7ff;
+            color: #1890ff;
+        }
+
+        .order-details {
+            font-size: 12px;
+            color: #666;
+        }
+
+        .order-bottle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .order-bottle:last-child {
+            border-bottom: none;
+        }
+
+        .bottle-code {
+            font-family: monospace;
+            font-size: 11px;
+        }
+
+        .bottle-volume {
+            font-weight: 600;
+            color: #52c41a;
+        }
+
+        .bottle-match {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 600;
+        }
+
+        .match-found {
+            background: #f6ffed;
+            color: #52c41a;
+        }
+
+        .match-not-found {
+            background: #fff2f0;
+            color: #ff4d4f;
+        }
+
+        .check-orders-button {
+            margin-left: 10px;
+            padding: 4px 8px;
+            background-color: #722ed1;
+            color: white;
+            border: none;
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .check-orders-button:hover {
+            background-color: #9254de;
+        }
+
+        .orders-summary {
+            background: #f0f8ff;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border: 1px solid #d6e4ff;
+        }
+
+        .summary-stats {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .summary-stat {
+            font-size: 12px;
+        }
+
+        .summary-value {
+            font-weight: 600;
+            color: #1890ff;
+        }
+
+        .alko-code-filter {
+            background: #f0f8ff;
+            border-left: 3px solid #1890ff;
+        }
+
+        .alko-code-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            background: #e6f7ff;
+            border: 1px solid #91d5ff;
+            border-radius: 3px;
+            font-size: 11px;
+            font-family: monospace;
+            color: #0050b3;
+            margin-left: 5px;
+        }
+
+        .alko-code-cell {
+            font-family: monospace;
+            font-size: 11px;
+            color: #666;
+        }
     `);
 
     let legalPersonId = null;
     const bottleCache = GM_getValue('bottleCache', {});
+    const ordersCache = GM_getValue('ordersCache', {});
     let csrfToken = null;
     let currentSearchData = {
         nomenclature: '',
@@ -580,6 +745,7 @@
         nomenclature: '',
         volumeMin: '',
         volumeMax: '',
+        alkoCode: '',
         tzStatus: 'all',
         markSearch: '',
         sortField: 'nomenclature',
@@ -587,10 +753,22 @@
     };
     let allBottlesData = [];
     let selectedBottles = new Set();
+    let ordersByMarkCode = {};
+    let ordersLoaded = false;
+    let ordersLoading = false;
+    let bottleCheckCache = {};
+
+    let buttonsInitialized = false;
+    let initializationInProgress = false;
 
     function debugLog(message, data = null) {
-        console.log('[EGAISTZ]', message, data || '');
-        GM_log('[EGAISTZ] ' + message + (data ? ' ' + JSON.stringify(data) : ''));
+        if (data) {
+            console.log('[EGAISTZ]', message, data);
+            GM_log('[EGAISTZ] ' + message + ' ' + JSON.stringify(data));
+        } else {
+            console.log('[EGAISTZ]', message);
+            GM_log('[EGAISTZ] ' + message);
+        }
     }
 
     function getCsrfToken() {
@@ -607,6 +785,8 @@
     }
 
     function interceptXHR() {
+        if (window.XMLHttpRequest.prototype._egaisIntercepted) return;
+
         const originalOpen = XMLHttpRequest.prototype.open;
         const originalSend = XMLHttpRequest.prototype.send;
 
@@ -626,6 +806,813 @@
             }
             return originalSend.apply(this, arguments);
         };
+
+        window.XMLHttpRequest.prototype._egaisIntercepted = true;
+    }
+
+   async function loadOpenOrders(legalPersonId, forceReload = false) {
+        if (ordersLoading) {
+            debugLog('Загрузка заказов уже выполняется, пропускаем...');
+            return;
+        }
+
+        const cacheKey = `orders_${legalPersonId}`;
+        const cacheTimestamp = ordersCache[`${cacheKey}_timestamp`];
+        const now = Date.now();
+        const CACHE_TTL = 5 * 60 * 1000;
+
+        if (!forceReload && cacheTimestamp && (now - cacheTimestamp < CACHE_TTL)) {
+            const cachedData = ordersCache[cacheKey];
+            if (cachedData) {
+                debugLog('Используем кэшированные данные заказов');
+                ordersByMarkCode = cachedData;
+                ordersLoaded = true;
+                return;
+            }
+        }
+
+        ordersLoading = true;
+
+        try {
+            debugLog('Загрузка открытых заказов для legalPersonId:', legalPersonId);
+            const ordersData = await searchOrders(legalPersonId);
+
+            if (!ordersData || !ordersData.data || ordersData.data.length === 0) {
+                debugLog('Нет открытых заказов');
+                ordersLoaded = true;
+                // Сохраняем в кэш даже пустой результат
+                ordersCache[cacheKey] = {};
+                ordersCache[`${cacheKey}_timestamp`] = now;
+                GM_setValue('ordersCache', ordersCache);
+                return;
+            }
+
+            debugLog('Найдено заказов:', ordersData.data.length);
+            ordersByMarkCode = {};
+
+            const BATCH_SIZE = 3;
+            for (let i = 0; i < ordersData.data.length; i += BATCH_SIZE) {
+                const batch = ordersData.data.slice(i, i + BATCH_SIZE);
+                await Promise.all(
+                    batch.map(order => processOrder(order.DT_RowId, legalPersonId))
+                );
+
+                // Небольшая задержка между батчами
+                if (i + BATCH_SIZE < ordersData.data.length) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+
+            ordersLoaded = true;
+
+            // Сохраняем в кэш
+            ordersCache[cacheKey] = ordersByMarkCode;
+            ordersCache[`${cacheKey}_timestamp`] = now;
+            GM_setValue('ordersCache', ordersCache);
+
+            debugLog('Заказы обработаны и закэшированы');
+
+        } catch (error) {
+            debugLog('Ошибка загрузки заказов:', error);
+            ordersLoaded = true;
+        } finally {
+            ordersLoading = false;
+        }
+    }
+
+    function searchOrders(legalPersonId) {
+        return new Promise((resolve, reject) => {
+            const url = 'https://dxbx.ru/app/egaisorder/search';
+            const postData = {
+                "draw": 1,
+                "columns": [
+                    {"data":"identity","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                    {"data":"status","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                    {"data":"legalPerson","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                    {"data":"firstCloseAttemptDate","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                    {"data":"createDate","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                    {"data":"creator","name":"","searchable":true,"orderable":false,"search":{"value":"","regex":false}},
+                    {"data":"updateDate","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}}
+                ],
+                "order": [{"column": 4, "dir": "desc"}],
+                "start": 0,
+                "length": 200,
+                "search": {"value":"","regex":false},
+                "model": "egaisorder",
+                "searchFormName": "egaisorder.default",
+                "simpleCrit": {
+                    "crits": [{
+                        "attr": "legalPerson",
+                        "value": legalPersonId,
+                        "oper": "EQUALS",
+                        "clauses": [{
+                            "oper": "AND",
+                            "criterion": {
+                                "attr": "status",
+                                "value": ["CREATED"],
+                                "oper": "IN",
+                                "clauses": []
+                            }
+                        }]
+                    }]
+                }
+            };
+
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: url,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                data: JSON.stringify(postData),
+                onload: function(response) {
+                    try {
+                        const data = JSON.parse(response.responseText);
+                        resolve(data);
+                    } catch (error) {
+                        reject(error);
+                    }
+                },
+                onerror: function(error) {
+                    reject(error);
+                }
+            });
+        });
+    }
+
+    async function processOrder(orderId, legalPersonId) {
+        try {
+            const orderItems = await getOrderItems(orderId);
+            if (!orderItems || orderItems.length === 0) return;
+
+            for (const item of orderItems) {
+                await processOrderItem(item.id, orderId);
+            }
+        } catch (error) {
+            debugLog('Ошибка обработки заказа:', error);
+        }
+    }
+
+    async function getOrderItems(orderId) {
+        return new Promise((resolve) => {
+            const url = `https://dxbx.ru/app/edit/egaisorder/${orderId}`;
+
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: url,
+                onload: function(response) {
+                    if (response.status === 200) {
+                        try {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(response.responseText, 'text/html');
+                            const itemRows = doc.querySelectorAll('tr.clickable-row[data-href*="egaisorderitem"]');
+                            const items = [];
+
+                            for (const row of itemRows) {
+                                const href = row.getAttribute('data-href');
+                                const match = href.match(/egaisorderitem\/(\d+)/);
+                                if (match && match[1]) {
+                                    items.push({ id: match[1], orderId: orderId });
+                                }
+                            }
+
+                            resolve(items);
+                        } catch (error) {
+                            resolve([]);
+                        }
+                    } else {
+                        resolve([]);
+                    }
+                },
+                onerror: function() {
+                    resolve([]);
+                }
+            });
+        });
+    }
+
+   async function processOrderItem(itemId, orderId) {
+    try {
+        debugLog('Обработка элемента заказа:', {itemId, orderId});
+        const itemDetails = await getOrderItemDetails(itemId, orderId);
+
+        if (itemDetails && itemDetails.bottles) {
+            debugLog('Найдены бутылки в заказе:', itemDetails.bottles.length);
+            debugLog('Номенклатура заказа:', itemDetails.nomenclature);
+
+            for (const bottle of itemDetails.bottles) {
+                if (bottle.code) {
+                    const shortCode = extractShortCode(bottle.code);
+
+                    if (shortCode) {
+                        if (!ordersByMarkCode[shortCode]) {
+                            ordersByMarkCode[shortCode] = [];
+                        }
+
+                        const existingOrder = ordersByMarkCode[shortCode].find(o => o.orderId === orderId);
+                        if (!existingOrder) {
+                            ordersByMarkCode[shortCode].push({
+                                orderId: orderId,
+                                orderUrl: `https://dxbx.ru/index#app/edit/egaisorder/${orderId}`,
+                                itemId: itemId,
+                                nomenclature: itemDetails.nomenclature, 
+                                volume: bottle.volume || 'Не указано',
+                                fullMarkCode: bottle.code
+                            });
+
+                            debugLog('Добавлен заказ для короткого кода:', {
+                                shortCode: shortCode,
+                                nomenclature: itemDetails.nomenclature
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        debugLog('Ошибка обработки элемента заказа:', error);
+    }
+}
+
+    function extractShortCode(fullMarkCode) {
+        if (!fullMarkCode) return null;
+
+        const trimmedCode = fullMarkCode.trim();
+
+        const elevenDigitMatch = trimmedCode.match(/\d{11}/);
+        if (elevenDigitMatch) {
+            return elevenDigitMatch[0];
+        }
+
+        const thirteenDigitMatch = trimmedCode.match(/\d{13}/);
+        if (thirteenDigitMatch) {
+            return thirteenDigitMatch[0];
+        }
+
+        if (trimmedCode.length <= 13) {
+            return trimmedCode;
+        }
+
+        const digitsFromStart = trimmedCode.match(/^\d+/);
+        if (digitsFromStart && digitsFromStart[0].length >= 8) {
+            return digitsFromStart[0];
+        }
+
+        return null;
+    }
+
+
+
+    async function getOrderItemDetails(itemId, orderId) {
+    return new Promise((resolve) => {
+        const url = `https://dxbx.ru/app/edit/egaisorderitem/${itemId}?ref=egaisorder/${orderId}`;
+
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url: url,
+            onload: function(response) {
+                if (response.status === 200) {
+                    try {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(response.responseText, 'text/html');
+                        const bottleRows = doc.querySelectorAll('tr.clickable-row[data-href*="egaisbottlerestreserve"]');
+                        const bottles = [];
+
+                        for (const row of bottleRows) {
+                            const cells = row.querySelectorAll('td');
+                            if (cells.length >= 2) {
+                                const code = cells[1].textContent.trim();
+                                const volume = cells.length >= 3 ? cells[2].textContent.trim() : 'Не указано';
+                                bottles.push({ code: code, volume: volume });
+                            }
+                        }
+
+                        let nomenclature = 'Не указано';
+                        const nomenclatureElement = doc.querySelector('#fgr_nomenclature .label.label-white.label-custom');
+                        if (nomenclatureElement) {
+                            nomenclature = nomenclatureElement.textContent.trim();
+                            nomenclature = nomenclature.replace(/\s+/g, ' ').trim();
+                        }
+
+                        resolve({ bottles: bottles, nomenclature: nomenclature });
+                    } catch (error) {
+                        resolve({ bottles: [] });
+                    }
+                } else {
+                    resolve({ bottles: [] });
+                }
+            },
+            onerror: function() {
+                resolve({ bottles: [] });
+            }
+        });
+    });
+    }
+       function createOrdersModal() {
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay orders-overlay';
+        overlay.addEventListener('click', closeOrdersModal);
+
+        const modal = document.createElement('div');
+        modal.className = 'orders-modal';
+
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+
+        const titleContainer = document.createElement('div');
+        titleContainer.className = 'modal-title-container';
+
+        const title = document.createElement('h3');
+        title.className = 'modal-title';
+        title.textContent = 'Проверка открытых заказов';
+
+        const subtitle = document.createElement('div');
+        subtitle.className = 'modal-subtitle';
+        subtitle.textContent = 'testbuild';
+
+        titleContainer.appendChild(title);
+        titleContainer.appendChild(subtitle);
+
+        const closeButton = document.createElement('button');
+        closeButton.className = 'modal-close';
+        closeButton.innerHTML = '&times;';
+        closeButton.addEventListener('click', closeOrdersModal);
+
+        header.appendChild(titleContainer);
+        header.appendChild(closeButton);
+
+        const content = document.createElement('div');
+        content.className = 'modal-content';
+        content.innerHTML = '<div class="loading-spinner">Загрузка заказов...</div>';
+
+        modal.appendChild(header);
+        modal.appendChild(content);
+
+        document.body.appendChild(overlay);
+        document.body.appendChild(modal);
+
+        return modal;
+    }
+
+    function openOrdersModal() {
+    const overlay = document.querySelector('.orders-overlay');
+    const modal = document.querySelector('.orders-modal');
+
+    if (!overlay || !modal) {
+        createOrdersModal();
+        openOrdersModal();
+        return;
+    }
+
+    overlay.classList.add('active');
+    modal.classList.add('active');
+
+    displayOrdersInModal();
+}
+
+function closeOrdersModal() {
+    const overlay = document.querySelector('.orders-overlay');
+    const modal = document.querySelector('.orders-modal');
+
+    if (overlay) overlay.classList.remove('active');
+    if (modal) modal.classList.remove('active');
+
+}
+
+function closeModal() {
+        const overlay = document.querySelector('.modal-overlay');
+        const modal = document.querySelector('.nomenclature-modal');
+
+        if (overlay) overlay.classList.remove('active');
+        if (modal) modal.classList.remove('active');
+
+        currentSearchData = {
+            nomenclature: '',
+            legalPersonId: '',
+            currentPage: 0,
+            totalRecords: 0,
+            pageSize: 500
+        };
+        currentFilters = {
+            nomenclature: '',
+            volumeMin: '',
+            volumeMax: '',
+            alkoCode: '',
+            tzStatus: 'all',
+            markSearch: '',
+            sortField: 'nomenclature',
+            sortDirection: 'asc'
+        };
+        allBottlesData = [];
+        selectedBottles.clear();
+    }
+
+function reloadOrders(legalPersonId) {
+        debugLog('Принудительная перезагрузка заказов...');
+        ordersByMarkCode = {};
+        bottleCheckCache = {}; // Очищаем кэш проверки бутылок
+        return loadOpenOrders(legalPersonId, true);
+    }
+
+function addCheckOrdersButton() {
+        if (!isTargetPage()) return;
+        if (!legalPersonId) return;
+
+        const tableWrapper = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0.gsbGPr');
+        if (!tableWrapper) return;
+
+        if (tableWrapper.querySelector('.orders-buttons-container')) {
+            return;
+        }
+
+        const ordersContainer = document.createElement('div');
+        ordersContainer.className = 'orders-buttons-container';
+        ordersContainer.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-left: 8px; margin-bottom: 16px;';
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'check-orders-button';
+        button.textContent = 'Проверить заказы';
+        button.title = 'Показать открытые заказы и сопоставление с бутылками';
+
+        button.addEventListener('click', async () => {
+            const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
+            if (!currentLegalPersonId) {
+                alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
+                return;
+            }
+
+            openOrdersModal();
+
+            if (!ordersLoaded && !ordersLoading) {
+                debugLog('Начало загрузки заказов по кнопке...');
+                await loadOpenOrders(currentLegalPersonId);
+            } else if (ordersLoading) {
+                debugLog('Заказы уже загружаются...');
+            } else {
+                debugLog('Заказы уже загружены, показываем результаты...');
+            }
+
+            displayOrdersInModal();
+        });
+
+        const reloadButton = document.createElement('button');
+        reloadButton.type = 'button';
+        reloadButton.className = 'check-orders-button reload-orders-button';
+        reloadButton.textContent = 'Обновить заказы';
+        reloadButton.title = 'Перезагрузить данные заказов';
+        reloadButton.style.marginLeft = '5px';
+        reloadButton.style.backgroundColor = '#fa8c16';
+
+        reloadButton.addEventListener('click', async () => {
+            const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
+            if (!currentLegalPersonId) {
+                alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
+                return;
+            }
+
+            if (document.querySelector('.orders-modal.active')) {
+                const content = document.querySelector('.orders-modal .modal-content');
+                content.innerHTML = '<div class="loading-spinner">Перезагрузка заказов...</div>';
+            }
+
+            ordersLoaded = false;
+            ordersLoading = false;
+            await reloadOrders(currentLegalPersonId);
+
+            if (document.querySelector('.orders-modal.active')) {
+                displayOrdersInModal();
+            }
+        });
+
+        ordersContainer.appendChild(button);
+        ordersContainer.appendChild(reloadButton);
+
+        tableWrapper.insertBefore(ordersContainer, tableWrapper.firstChild);
+    }
+GM_addStyle(`
+    .check-orders-button.reload {
+        background-color: #fa8c16;
+    }
+    .check-orders-button.reload:hover {
+        background-color: #d46b08;
+    }
+`);
+
+
+async function displayOrdersInModal() {
+        const content = document.querySelector('.orders-modal .modal-content');
+
+        if (ordersLoading) {
+            content.innerHTML = '<div class="loading-spinner">Загрузка заказов...</div>';
+            return;
+        }
+
+        if (!ordersLoaded) {
+            content.innerHTML = `
+                <div class="loading-spinner">
+                    Заказы еще не загружены. Нажмите "Проверить заказы" для начала загрузки.
+                    <div style="font-size: 12px; margin-top: 10px; color: #999;">
+                        Это может занять несколько секунд
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
+        if (Object.keys(ordersByMarkCode).length === 0) {
+            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">Нет открытых заказов</div>';
+            return;
+        }
+
+
+    let totalOrders = 0;
+    let totalBottles = 0;
+    let foundBottles = 0;
+    const orderMap = new Map();
+
+    for (const [shortCode, orders] of Object.entries(ordersByMarkCode)) {
+        for (const order of orders) {
+            if (!orderMap.has(order.orderId)) {
+                orderMap.set(order.orderId, {
+                    ...order,
+                    bottles: []
+                });
+            }
+            const orderData = orderMap.get(order.orderId);
+            orderData.bottles.push({
+                shortCode: shortCode,
+                fullMarkCode: order.fullMarkCode,
+                volume: order.volume,
+                nomenclature: order.nomenclature
+            });
+            totalBottles++;
+        }
+    }
+
+    totalOrders = orderMap.size;
+
+    let html = `
+        <div class="orders-summary">
+            <div class="summary-stats">
+                <div class="summary-stat">Всего заказов: <span class="summary-value">${totalOrders}</span></div>
+                <div class="summary-stat">Всего бутылок: <span class="summary-value">${totalBottles}</span></div>
+                <div class="summary-stat">Найдено бутылок: <span id="found-bottles-count" class="summary-value">0</span></div>
+                <div class="summary-stat">Процент найденных: <span id="found-percentage" class="summary-value">0%</span></div>
+            </div>
+        </div>
+        <div id="orders-content">
+            <div class="loading-spinner">Проверка наличия бутылок...</div>
+        </div>
+    `;
+
+    content.innerHTML = html;
+
+    const checkBottles = async () => {
+        const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
+        if (!currentLegalPersonId) {
+            document.getElementById('orders-content').innerHTML = '<div class="error-message">Ошибка: не удалось определить legalPersonId</div>';
+            return;
+        }
+
+        let checkedBottles = 0;
+        let currentFoundBottles = 0;
+
+        let ordersHTML = '';
+
+        for (const [orderId, orderData] of orderMap) {
+            let orderHTML = `
+                <div class="order-item">
+                    <div class="order-header">
+                        <a class="order-title" href="${orderData.orderUrl}" target="_blank">
+                            Заказ #${orderId}
+                        </a>
+                        <span class="order-status status-created">CREATED</span>
+                    </div>
+                    <div class="order-details">
+                        <div><strong>Номенклатура ресторана:</strong> ${orderData.nomenclature}</div>
+                        <div style="margin-top: 8px;"><strong>Бутылки в заказе:</strong></div>
+            `;
+
+            for (const bottle of orderData.bottles) {
+                try {
+                    const bottleInfo = await getBottleInfoByShortCode(bottle.shortCode, currentLegalPersonId);
+                    bottle.found = bottleInfo.found;
+                    bottle.bottleInfo = bottleInfo;
+
+                    if (bottleInfo.found) {
+                        currentFoundBottles++;
+                        orderHTML += `
+                            <div class="order-bottle">
+                                <div style="flex: 1;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                        <a class="modal-link" href="${bottle.bottleInfo.bottleUrl}" target="_blank" style="font-weight: 600;">
+                                            ${bottle.shortCode}
+                                        </a>
+                                        <span class="bottle-match match-found">✓ Найдена</span>
+                                    </div>
+                                    <div style="font-size: 11px; color: #666;">
+                                        <div><strong>Номенклатура:</strong> ${bottle.bottleInfo.nomenclature}</div>
+                                        <div><strong>Объем:</strong> ${bottle.volume} мл</div>
+                                        <div><strong>Полная марка:</strong> ${bottle.fullMarkCode}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        orderHTML += `
+                            <div class="order-bottle">
+                                <div style="flex: 1;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                        <span class="bottle-code" style="font-weight: 600;">${bottle.shortCode}</span>
+                                        <span class="bottle-match match-not-found">✗ Не найдена</span>
+                                    </div>
+                                    <div style="font-size: 11px; color: #666;">
+                                        <div><strong>Объем:</strong> ${bottle.volume} мл</div>
+                                        <div><strong>Полная марка:</strong> ${bottle.fullMarkCode}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    checkedBottles++;
+
+                    document.getElementById('found-bottles-count').textContent = currentFoundBottles;
+                    document.getElementById('found-percentage').textContent =
+                        totalBottles > 0 ? Math.round((currentFoundBottles / totalBottles) * 100) + '%' : '0%';
+
+                    await new Promise(resolve => setTimeout(resolve, 50));
+
+                } catch (error) {
+                    bottle.found = false;
+                    bottle.bottleInfo = null;
+                    checkedBottles++;
+                }
+            }
+
+            orderHTML += `</div></div>`;
+            ordersHTML += orderHTML;
+
+            document.getElementById('orders-content').innerHTML = ordersHTML;
+        }
+
+        foundBottles = currentFoundBottles;
+        document.getElementById('found-bottles-count').textContent = foundBottles;
+        document.getElementById('found-percentage').textContent =
+            totalBottles > 0 ? Math.round((foundBottles / totalBottles) * 100) + '%' : '0%';
+    };
+
+    checkBottles();
+    await displayOrdersContent();
+}
+
+    async function displayOrdersContent() {
+        const content = document.querySelector('.orders-modal .modal-content');
+
+        let totalOrders = 0;
+        let totalBottles = 0;
+        const orderMap = new Map();
+
+        for (const [shortCode, orders] of Object.entries(ordersByMarkCode)) {
+            for (const order of orders) {
+                if (!orderMap.has(order.orderId)) {
+                    orderMap.set(order.orderId, {
+                        ...order,
+                        bottles: []
+                    });
+                }
+                const orderData = orderMap.get(order.orderId);
+                orderData.bottles.push({
+                    shortCode: shortCode,
+                    fullMarkCode: order.fullMarkCode,
+                    volume: order.volume,
+                    nomenclature: order.nomenclature
+                });
+                totalBottles++;
+            }
+        }
+
+        totalOrders = orderMap.size;
+
+        // Показываем начальную статистику
+        let html = `
+            <div class="orders-summary">
+                <div class="summary-stats">
+                    <div class="summary-stat">Всего заказов: <span class="summary-value">${totalOrders}</span></div>
+                    <div class="summary-stat">Всего бутылок: <span class="summary-value">${totalBottles}</span></div>
+                    <div class="summary-stat">Найдено бутылок: <span id="found-bottles-count" class="summary-value">0</span></div>
+                    <div class="summary-stat">Процент найденных: <span id="found-percentage" class="summary-value">0%</span></div>
+                </div>
+            </div>
+            <div id="orders-content">
+                <div class="loading-spinner">Проверка наличия бутылок...</div>
+            </div>
+        `;
+
+        content.innerHTML = html;
+
+        await checkBottlesWithCache(orderMap, totalBottles);
+    }
+
+    async function checkBottlesWithCache(orderMap, totalBottles) {
+        const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
+        if (!currentLegalPersonId) {
+            document.getElementById('orders-content').innerHTML = '<div class="error-message">Ошибка: не удалось определить legalPersonId</div>';
+            return;
+        }
+
+        let checkedBottles = 0;
+        let currentFoundBottles = 0;
+        let ordersHTML = '';
+
+        for (const [orderId, orderData] of orderMap) {
+            let orderHTML = `
+                <div class="order-item">
+                    <div class="order-header">
+                        <a class="order-title" href="${orderData.orderUrl}" target="_blank">
+                            Заказ #${orderId}
+                        </a>
+                        <span class="order-status status-created">CREATED</span>
+                    </div>
+                    <div class="order-details">
+                        <div><strong>Номенклатура ресторана:</strong> ${orderData.nomenclature}</div>
+                        <div style="margin-top: 8px;"><strong>Бутылки в заказе:</strong></div>
+            `;
+
+            // Проверяем каждую бутылку в заказе с кэшированием
+            for (const bottle of orderData.bottles) {
+                const cacheKey = `${currentLegalPersonId}_${bottle.shortCode}`;
+
+                if (bottleCheckCache[cacheKey] !== undefined) {
+                    bottle.found = bottleCheckCache[cacheKey].found;
+                    bottle.bottleInfo = bottleCheckCache[cacheKey].bottleInfo;
+                } else {
+                    try {
+                        const bottleInfo = await getBottleInfoByShortCode(bottle.shortCode, currentLegalPersonId);
+                        bottle.found = bottleInfo.found;
+                        bottle.bottleInfo = bottleInfo;
+                        bottleCheckCache[cacheKey] = { found: bottleInfo.found, bottleInfo: bottleInfo };
+                    } catch (error) {
+                        bottle.found = false;
+                        bottle.bottleInfo = null;
+                    }
+                }
+
+                if (bottle.found) {
+                    currentFoundBottles++;
+                    orderHTML += `
+                        <div class="order-bottle">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                    <a class="modal-link" href="${bottle.bottleInfo.bottleUrl}" target="_blank" style="font-weight: 600;">
+                                        ${bottle.shortCode}
+                                    </a>
+                                    <span class="bottle-match match-found">✓ Найдена</span>
+                                </div>
+                                <div style="font-size: 11px; color: #666;">
+                                    <div><strong>Номенклатура:</strong> ${bottle.bottleInfo.nomenclature}</div>
+                                    <div><strong>Объем:</strong> ${bottle.volume} мл</div>
+                                    <div><strong>Полная марка:</strong> ${bottle.fullMarkCode}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    orderHTML += `
+                        <div class="order-bottle">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                    <span class="bottle-code" style="font-weight: 600;">${bottle.shortCode}</span>
+                                    <span class="bottle-match match-not-found">✗ Не найдена</span>
+                                </div>
+                                <div style="font-size: 11px; color: #666;">
+                                    <div><strong>Объем:</strong> ${bottle.volume} мл</div>
+                                    <div><strong>Полная марка:</strong> ${bottle.fullMarkCode}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                checkedBottles++;
+
+                document.getElementById('found-bottles-count').textContent = currentFoundBottles;
+                document.getElementById('found-percentage').textContent =
+                    totalBottles > 0 ? Math.round((currentFoundBottles / totalBottles) * 100) + '%' : '0%';
+
+                await new Promise(resolve => setTimeout(resolve, 30));
+            }
+
+            orderHTML += `</div></div>`;
+            ordersHTML += orderHTML;
+            document.getElementById('orders-content').innerHTML = ordersHTML;
+        }
+
+        document.getElementById('found-bottles-count').textContent = currentFoundBottles;
+        document.getElementById('found-percentage').textContent =
+            totalBottles > 0 ? Math.round((currentFoundBottles / totalBottles) * 100) + '%' : '0%';
     }
 
     function createModal() {
@@ -697,32 +1684,6 @@
         modal.classList.add('active');
     }
 
-    function closeModal() {
-        const overlay = document.querySelector('.modal-overlay');
-        const modal = document.querySelector('.nomenclature-modal');
-
-        overlay.classList.remove('active');
-        modal.classList.remove('active');
-
-        currentSearchData = {
-            nomenclature: '',
-            legalPersonId: '',
-            currentPage: 0,
-            totalRecords: 0,
-            pageSize: 500
-        };
-        currentFilters = {
-            nomenclature: '',
-            volumeMin: '',
-            volumeMax: '',
-            tzStatus: 'all',
-            markSearch: '',
-            sortField: 'nomenclature',
-            sortDirection: 'asc'
-        };
-        allBottlesData = [];
-        selectedBottles.clear();
-    }
 
     function searchBottlesByNomenclature(nomenclature, legalPersonId, start = 0, length = 10000) {
         return new Promise((resolve, reject) => {
@@ -821,6 +1782,79 @@
             });
         });
     }
+        async function getBottleInfoByShortCode(shortCode, legalPersonId) {
+    return new Promise((resolve) => {
+        const url = 'https://dxbx.ru/app/egaisbottle/search';
+        const postData = {
+            "draw": 1,
+            "columns": [
+                {"data":"legalPerson","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                {"data":"egaisActItem","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                {"data":"shortMarkCode","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                {"data":"restsItem","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                {"data":"egaisNomenclatureInfo","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                {"data":"egaisVolume","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                {"data":"egaisVolumeUpdateDate","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                {"data":"active","name":"","searchable":true,"orderable":true,"search":{"value":"","regex":false}},
+                {"data":"availableVolume","name":"","searchable":true,"orderable":false,"search":{"value":"","regex":false}}
+            ],
+            "order": [{"column":0,"dir":"asc"}],
+            "start": 0,
+            "length": 10,
+            "search": {"value":"","regex":false},
+            "model": "egaisbottle",
+            "searchFormName": "egaisbottle.default",
+            "simpleCrit": {
+                "crits": [{
+                    "attr": "legalPerson",
+                    "value": legalPersonId,
+                    "oper": "EQUALS",
+                    "clauses": [{
+                        "oper": "AND",
+                        "criterion": {
+                            "attr": "shortMarkCode",
+                            "value": shortCode,
+                            "oper": "EQUALS",
+                            "clauses": []
+                        }
+                    }]
+                }]
+            }
+        };
+
+        GM_xmlhttpRequest({
+            method: 'POST',
+            url: url,
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            data: JSON.stringify(postData),
+            onload: function(response) {
+                try {
+                    const data = JSON.parse(response.responseText);
+                    if (data.data && data.data.length > 0) {
+                        const bottle = data.data[0];
+                        resolve({
+                            found: true,
+                            bottleId: bottle.DT_RowId,
+                            nomenclature: bottle.egaisNomenclatureInfo || 'Не указано',
+                            shortMarkCode: bottle.shortMarkCode,
+                            bottleUrl: `https://dxbx.ru/index#app/edit/egaisbottle/${bottle.DT_RowId}`
+                        });
+                    } else {
+                        resolve({ found: false });
+                    }
+                } catch (error) {
+                    resolve({ found: false });
+                }
+            },
+            onerror: function() {
+                resolve({ found: false });
+            }
+        });
+    });
+}
 
     function getBottleDetails(bottleId) {
         return new Promise((resolve, reject) => {
@@ -946,6 +1980,7 @@
                     <div class="stat-item">В ТЗ: <span class="stat-value" id="tz-count">0</span></div>
                     <div class="stat-item">Не в ТЗ: <span class="stat-value" id="not-tz-count">0</span></div>
                     <div class="stat-item">Средний объем: <span class="stat-value" id="avg-volume">0</span> мл</div>
+                    <div class="stat-item">Уникальных алкокодов: <span class="stat-value" id="alko-count">0</span></div>
                 </div>
 
                 <div class="batch-actions" id="batch-actions" style="display: none;">
@@ -961,6 +1996,7 @@
                     <div class="quick-filter" data-filter="volume=low">Меньше 100 мл</div>
                     <div class="quick-filter" data-filter="volume=medium">100-500 мл</div>
                     <div class="quick-filter" data-filter="volume=high">Больше 500 мл</div>
+                    <div class="quick-filter" data-filter="alko-code">По алкокоду</div>
                     <div class="quick-filter" data-filter="reset">Сбросить всё</div>
                 </div>
 
@@ -969,6 +2005,13 @@
                         <label class="filter-label">Номенклатура</label>
                         <select class="filter-select" id="nomenclature-filter">
                             <option value="">Все номенклатуры</option>
+                        </select>
+                    </div>
+
+                    <div class="filter-group">
+                        <label class="filter-label">Алкокод</label>
+                        <select class="filter-select" id="alko-code-filter">
+                            <option value="">Все алкокоды</option>
                         </select>
                     </div>
 
@@ -1004,6 +2047,7 @@
                             <option value="tzStatus">По статусу ТЗ</option>
                             <option value="date">По дате</option>
                             <option value="shortcode">По короткому коду</option>
+                            <option value="alkoCode">По алкокоду</option>
                         </select>
                     </div>
 
@@ -1026,6 +2070,12 @@
         `;
     }
 
+    function extractAlkoCode(restsItem) {
+        if (!restsItem) return '';
+        const match = restsItem.match(/Алк\. код:\s*(\d+)/);
+        return match ? match[1] : '';
+    }
+
     function setupFilters() {
         // Быстрые фильтры
         document.getElementById('quick-filters').addEventListener('click', (e) => {
@@ -1033,6 +2083,7 @@
                 const filter = e.target.dataset.filter;
                 applyQuickFilter(filter);
             }
+
         });
 
         // Основные фильтры
@@ -1041,12 +2092,10 @@
         document.getElementById('export-data').addEventListener('click', exportToCSV);
         document.getElementById('toggle-selection').addEventListener('click', toggleSelectionMode);
 
-        // Пакетные действия
         document.getElementById('select-all').addEventListener('click', selectAll);
         document.getElementById('deselect-all').addEventListener('click', deselectAll);
         document.getElementById('export-selected').addEventListener('click', exportSelected);
 
-        // Автоматическое применение при изменении
         document.getElementById('nomenclature-filter').addEventListener('change', applyFilters);
         document.getElementById('volume-min').addEventListener('input', debounce(applyFilters, 300));
         document.getElementById('volume-max').addEventListener('input', debounce(applyFilters, 300));
@@ -1054,6 +2103,7 @@
         document.getElementById('mark-search').addEventListener('input', debounce(applyFilters, 300));
         document.getElementById('sort-field').addEventListener('change', applyFilters);
         document.getElementById('sort-direction').addEventListener('change', applyFilters);
+        document.getElementById('alko-code-filter').addEventListener('change', applyFilters);
     }
 
     function debounce(func, wait) {
@@ -1088,6 +2138,12 @@
                 currentFilters.volumeMin = '500';
                 currentFilters.volumeMax = '1000';
                 break;
+            case 'alko-code':
+                const alkoSelect = document.getElementById('alko-code-filter');
+                if (alkoSelect.options.length > 1) {
+                    currentFilters.alkoCode = alkoSelect.options[1].value;
+                }
+                break;
             case 'reset':
                 resetFilters();
                 return;
@@ -1098,6 +2154,7 @@
 
     function updateFilterInputs() {
         document.getElementById('nomenclature-filter').value = currentFilters.nomenclature;
+        document.getElementById('alko-code-filter').value = currentFilters.alkoCode;
         document.getElementById('volume-min').value = currentFilters.volumeMin;
         document.getElementById('volume-max').value = currentFilters.volumeMax;
         document.getElementById('tz-filter').value = currentFilters.tzStatus;
@@ -1106,9 +2163,11 @@
         document.getElementById('sort-direction').value = currentFilters.sortDirection;
     }
 
+
     function applyFilters() {
         currentFilters = {
             nomenclature: document.getElementById('nomenclature-filter').value,
+            alkoCode: document.getElementById('alko-code-filter').value,
             volumeMin: document.getElementById('volume-min').value,
             volumeMax: document.getElementById('volume-max').value,
             tzStatus: document.getElementById('tz-filter').value,
@@ -1120,9 +2179,11 @@
         filterAndSortTable();
     }
 
+
     function resetFilters() {
         currentFilters = {
             nomenclature: '',
+            alkoCode: '',
             volumeMin: '',
             volumeMax: '',
             tzStatus: 'all',
@@ -1142,6 +2203,7 @@
         let notTzCount = 0;
         let totalVolume = 0;
         let volumeCount = 0;
+        const alkoCodes = new Set();
 
         rows.forEach(row => {
             const nomenclature = row.getAttribute('data-nomenclature') || '';
@@ -1149,13 +2211,20 @@
             const tzStatus = row.getAttribute('data-tz-status') || '';
             const markInfo = (row.getAttribute('data-mark') || '').toLowerCase();
             const shortCode = (row.querySelector('td:nth-child(2)')?.textContent || '').toLowerCase();
+            const alkoCode = row.getAttribute('data-alko-code') || '';
 
             let shouldShow = true;
 
+            // Фильтр по номенклатуре
             if (currentFilters.nomenclature && nomenclature !== currentFilters.nomenclature) {
                 shouldShow = false;
             }
 
+            if (currentFilters.alkoCode && alkoCode !== currentFilters.alkoCode) {
+                shouldShow = false;
+            }
+
+            // Фильтры по объему
             if (currentFilters.volumeMin && volume < parseInt(currentFilters.volumeMin)) {
                 shouldShow = false;
             }
@@ -1164,6 +2233,7 @@
                 shouldShow = false;
             }
 
+            // Фильтр по статусу ТЗ
             if (currentFilters.tzStatus === 'yes' && tzStatus !== 'да') {
                 shouldShow = false;
             }
@@ -1172,6 +2242,7 @@
                 shouldShow = false;
             }
 
+            // Фильтр по марке
             if (currentFilters.markSearch &&
                 !markInfo.includes(currentFilters.markSearch) &&
                 !shortCode.includes(currentFilters.markSearch)) {
@@ -1188,6 +2259,9 @@
                     totalVolume += volume;
                     volumeCount++;
                 }
+                if (alkoCode) {
+                    alkoCodes.add(alkoCode);
+                }
 
                 row.classList.add('highlight-row');
                 setTimeout(() => row.classList.remove('highlight-row'), 1000);
@@ -1195,7 +2269,8 @@
         });
 
         sortTable();
-        updateStats(rows.length, visibleCount, tzCount, notTzCount, volumeCount > 0 ? totalVolume / volumeCount : 0);
+        updateStats(rows.length, visibleCount, tzCount, notTzCount,
+                   volumeCount > 0 ? totalVolume / volumeCount : 0, alkoCodes.size);
     }
 
     function sortTable() {
@@ -1222,6 +2297,10 @@
                     aValue = a.querySelector('td:nth-child(2)')?.textContent || '';
                     bValue = b.querySelector('td:nth-child(2)')?.textContent || '';
                     break;
+                case 'alkoCode':
+                    aValue = a.getAttribute('data-alko-code') || '';
+                    bValue = b.getAttribute('data-alko-code') || '';
+                    break;
                 case 'nomenclature':
                 default:
                     aValue = a.getAttribute('data-nomenclature') || '';
@@ -1243,12 +2322,13 @@
         rows.forEach(row => tbody.appendChild(row));
     }
 
-    function updateStats(total, filtered, tzCount, notTzCount, avgVolume) {
+    function updateStats(total, filtered, tzCount, notTzCount, avgVolume, alkoCount) {
         document.getElementById('total-count').textContent = total;
         document.getElementById('filtered-count').textContent = filtered;
         document.getElementById('tz-count').textContent = tzCount;
         document.getElementById('not-tz-count').textContent = notTzCount;
         document.getElementById('avg-volume').textContent = Math.round(avgVolume);
+        document.getElementById('alko-count').textContent = alkoCount;
     }
 
     function exportToCSV() {
@@ -1298,6 +2378,26 @@
             const option = document.createElement('option');
             option.value = nom;
             option.textContent = nom;
+            select.appendChild(option);
+        });
+    }
+
+    function populateAlkoCodeFilter(bottles) {
+        const select = document.getElementById('alko-code-filter');
+        const alkoCodeSet = new Set();
+
+        bottles.forEach(bottle => {
+            const alkoCode = extractAlkoCode(bottle.restsItem);
+            if (alkoCode) {
+                alkoCodeSet.add(alkoCode);
+            }
+        });
+
+        select.innerHTML = '<option value="">Все алкокоды</option>';
+        Array.from(alkoCodeSet).sort().forEach(code => {
+            const option = document.createElement('option');
+            option.value = code;
+            option.textContent = code;
             select.appendChild(option);
         });
     }
@@ -1460,6 +2560,7 @@
                         <th class="sortable-header" data-sort="nomenclature">Наименование</th>
                         <th class="sortable-header" data-sort="shortcode">Короткий код</th>
                         <th class="sortable-header" data-sort="volume">Объем (мл)</th>
+                        <th class="sortable-header" data-sort="alkoCode">Алкокод</th>
                         <th>Полная марка</th>
                         <th class="sortable-header" data-sort="tz">В ТЗ</th>
                         <th class="sortable-header" data-sort="date">Дата обновления</th>
@@ -1471,14 +2572,16 @@
 
         activeBottles.forEach(bottle => {
             const nomenclatureName = bottle.egaisNomenclatureInfo || 'Неизвестная номенклатура';
+            const alkoCode = extractAlkoCode(bottle.restsItem);
 
             tableHTML += `
-                <tr data-bottle-id="${bottle.DT_RowId}" data-nomenclature="${nomenclatureName}">
+                <tr data-bottle-id="${bottle.DT_RowId}" data-nomenclature="${nomenclatureName}" data-alko-code="${alkoCode}">
                     <td>${nomenclatureName}</td>
                     <td>${bottle.title || 'Н/Д'}</td>
                     <td class="volume-cell" data-bottle-id="${bottle.DT_RowId}">
                         <span class="volume-loading">Загрузка...</span>
                     </td>
+                    <td class="alko-code-cell">${alkoCode || 'Н/Д'}</td>
                     <td class="mark-info-cell" data-bottle-id="${bottle.DT_RowId}">
                         <span class="mark-loading">Загрузка...</span>
                     </td>
@@ -1512,8 +2615,10 @@
 
         setupFilters();
         populateNomenclatureFilter(activeBottles);
+        populateAlkoCodeFilter(activeBottles);
         await loadBottleDetails();
     }
+
 
     async function loadBottleDetails() {
         const volumeCells = document.querySelectorAll('.volume-cell');
@@ -1605,139 +2710,152 @@
     }
 
     function addNomenclatureButtons() {
-        if (!isTargetPage()) return;
-
-        const strongAlcoholTable = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0.gsbGPr');
-
-        if (!strongAlcoholTable) return;
-
-        const mainTable = strongAlcoholTable.querySelector('.ant-table-tbody:not(.restsstyled__ExpandedTableWrapper-sc-1oz76wz-5 .ant-table-tbody)');
-
-        if (!mainTable) return;
-
-        const rows = mainTable.querySelectorAll('.ant-table-row.ant-table-row-level-0');
-
-        rows.forEach(row => {
-            const cells = row.querySelectorAll('.ant-table-cell');
-            if (cells.length >= 3) {
-                const nomenclatureCell = cells[2];
-                const nomenclature = nomenclatureCell.textContent.trim();
-
-                const positionNameCell = cells[0];
-                const positionName = positionNameCell.textContent.trim();
-
-                if (nomenclature &&
-                    !nomenclatureCell.querySelector('.nomenclature-button') &&
-                    !nomenclature.match(/^\d+\.\d+$/) &&
-                    !nomenclature.match(/^[A-F0-9-]+$/) &&
-                    !nomenclature.match(/^\d{11,}$/) &&
-                    nomenclature.length > 5) {
-
-                    const button = document.createElement('button');
-                    button.className = 'nomenclature-button';
-                    button.textContent = 'Поиск бутылок';
-                    button.title = `Найти активные бутылки для: ${nomenclature}`;
-
-                    button.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-
-                        const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
-                        if (!currentLegalPersonId) {
-                            alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
-                            return;
-                        }
-
-                        openModal(nomenclature, positionName);
-
-                        const content = document.querySelector('.modal-content');
-                        content.innerHTML = '<div class="loading-spinner">Поиск активных бутылок...</div>';
-
-                        try {
-                            const results = await searchBottlesByNomenclature(nomenclature, currentLegalPersonId);
-                            await displayResultsInModal(results, nomenclature, currentLegalPersonId, positionName);
-                        } catch (error) {
-                            console.error('Ошибка поиска:', error);
-                            content.innerHTML = `
-                                <div class="error-message">
-                                    Ошибка при поиске бутылок: ${error.message}<br>
-                                    <small>Попробуйте обновить страницу и повторить попытку</small>
-                                    ${positionName ? `<br>Позиция: ${positionName}` : ''}
-                                </div>
-                            `;
-                        }
-                    });
-
-                    nomenclatureCell.appendChild(button);
-                }
-            }
-        });
-    }
-
-    function addManualSearchButton() {
     if (!isTargetPage()) return;
 
-    const tableWrapper = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0.gsbGPr');
+    const strongAlcoholTable = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0.gsbGPr');
+    if (!strongAlcoholTable) {
+        debugLog('Таблица не найдена');
+        return;
+    }
 
-    if (!tableWrapper) return;
+    const mainTable = strongAlcoholTable.querySelector('.ant-table-tbody:not(.restsstyled__ExpandedTableWrapper-sc-1oz76wz-5 .ant-table-tbody)');
+    if (!mainTable) {
+        debugLog('Основное тело таблицы не найдено');
+        return;
+    }
 
-    if (tableWrapper.querySelector('.manual-search-container')) return;
+    const rows = mainTable.querySelectorAll('.ant-table-row.ant-table-row-level-0');
+    debugLog(`Найдено строк: ${rows.length}`);
 
-    const searchContainer = document.createElement('div');
-    searchContainer.className = 'manual-search-container';
+    let buttonsAdded = 0;
 
-    const searchInput = document.createElement('input');
-    searchInput.type = 'text';
-    searchInput.className = 'manual-search-input';
-    searchInput.placeholder = 'Введите номенклатуру для поиска';
+    rows.forEach(row => {
+        const cells = row.querySelectorAll('.ant-table-cell');
+        if (cells.length >= 3) {
+            const nomenclatureCell = cells[2];
+            const nomenclature = nomenclatureCell.textContent.trim();
 
-    const searchButton = document.createElement('button');
-    searchButton.type = 'button';
-    searchButton.className = 'manual-search-button';
-    searchButton.textContent = 'Поиск бутылок';
+            const positionNameCell = cells[0];
+            const positionName = positionNameCell.textContent.trim();
 
-    searchButton.addEventListener('click', async () => {
-        const nomenclature = searchInput.value.trim();
-        if (!nomenclature) {
-            alert('Пожалуйста, введите номенклатуру для поиска');
-            return;
-        }
+            if (nomenclature &&
+                nomenclature.length > 3 &&
+                !nomenclatureCell.querySelector('.nomenclature-button')) {
 
-        const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
-        if (!currentLegalPersonId) {
-            alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
-            return;
-        }
+                const button = document.createElement('button');
+                button.className = 'nomenclature-button';
+                button.textContent = 'Поиск бутылок';
+                button.title = `Найти активные бутылки для: ${nomenclature}`;
 
-        openModal(nomenclature);
+                button.addEventListener('click', async (e) => {
+                    e.stopPropagation();
 
-        const content = document.querySelector('.modal-content');
-        content.innerHTML = '<div class="loading-spinner">Поиск активных бутылок...</div>';
+                    const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
+                    if (!currentLegalPersonId) {
+                        alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
+                        return;
+                    }
 
-        try {
-            const results = await searchBottlesByNomenclature(nomenclature, currentLegalPersonId);
-            await displayResultsInModal(results, nomenclature, currentLegalPersonId);
-        } catch (error) {
-            console.error('Ошибка поиска:', error);
-            content.innerHTML = `
-                <div class="error-message">
-                    Ошибка при поиске бутылок: ${error.message}<br>
-                    <small>Попробуйте обновить страницу и повторить попытку</small>
-                </div>
-            `;
+                    openModal(nomenclature, positionName);
+
+                    const content = document.querySelector('.modal-content');
+                    content.innerHTML = '<div class="loading-spinner">Поиск активных бутылок...</div>';
+
+                    try {
+                        const results = await searchBottlesByNomenclature(nomenclature, currentLegalPersonId);
+                        await displayResultsInModal(results, nomenclature, currentLegalPersonId, positionName);
+                    } catch (error) {
+                        console.error('Ошибка поиска:', error);
+                        content.innerHTML = `
+                            <div class="error-message">
+                                Ошибка при поиске бутылок: ${error.message}<br>
+                                <small>Попробуйте обновить страницу и повторить попытку</small>
+                                ${positionName ? `<br>Позиция: ${positionName}` : ''}
+                            </div>
+                        `;
+                    }
+                });
+
+                nomenclatureCell.appendChild(button);
+                buttonsAdded++;
+            }
         }
     });
 
-    searchInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            searchButton.click();
-        }
-    });
-
-    searchContainer.appendChild(searchInput);
-    searchContainer.appendChild(searchButton);
-
-    tableWrapper.insertBefore(searchContainer, tableWrapper.firstChild);
+    debugLog(`Добавлено кнопок номенклатуры: ${buttonsAdded}`);
 }
+
+    function addManualSearchButton() {
+        if (!isTargetPage()) return;
+
+        const tableWrapper = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0.gsbGPr');
+        if (!tableWrapper) return;
+
+        if (tableWrapper.querySelector('.manual-search-container')) {
+            return;
+        }
+
+        const searchContainer = document.createElement('div');
+        searchContainer.className = 'manual-search-container';
+
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.className = 'manual-search-input';
+        searchInput.placeholder = 'Введите номенклатуру для поиска';
+
+        const searchButton = document.createElement('button');
+        searchButton.type = 'button';
+        searchButton.className = 'manual-search-button';
+        searchButton.textContent = 'Поиск бутылок';
+
+        searchButton.addEventListener('click', async () => {
+            const nomenclature = searchInput.value.trim();
+            if (!nomenclature) {
+                alert('Пожалуйста, введите номенклатуру для поиска');
+                return;
+            }
+
+            const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
+            if (!currentLegalPersonId) {
+                alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
+                return;
+            }
+
+            openModal(nomenclature);
+
+            const content = document.querySelector('.modal-content');
+            content.innerHTML = '<div class="loading-spinner">Поиск активных бутылок...</div>';
+
+            try {
+                const results = await searchBottlesByNomenclature(nomenclature, currentLegalPersonId);
+                await displayResultsInModal(results, nomenclature, currentLegalPersonId);
+            } catch (error) {
+                console.error('Ошибка поиска:', error);
+                content.innerHTML = `
+                    <div class="error-message">
+                        Ошибка при поиске бутылок: ${error.message}<br>
+                        <small>Попробуйте обновить страницу и повторить попытку</small>
+                    </div>
+                `;
+            }
+        });
+
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                searchButton.click();
+            }
+        });
+
+        searchContainer.appendChild(searchInput);
+        searchContainer.appendChild(searchButton);
+
+        const ordersContainer = tableWrapper.querySelector('.orders-buttons-container');
+        if (ordersContainer) {
+            tableWrapper.insertBefore(searchContainer, ordersContainer.nextSibling);
+        } else {
+            tableWrapper.insertBefore(searchContainer, tableWrapper.firstChild);
+        }
+    }
 
     async function addEgaisButtons() {
         if (!isTargetPage()) return;
@@ -2238,24 +3356,74 @@
     }
 
     function observeDOM() {
-        const targetNode = document.querySelector('.ant-table-wrapper');
-        if (targetNode) {
-            const observer = new MutationObserver((mutations) => {
-                mutations.forEach(() => {
-                    handleExpandButtons();
-                    setTimeout(addEgaisButtons, 100);
-                    setTimeout(addNomenclatureButtons, 100);
-                    setTimeout(addManualSearchButton, 100);
-                });
-            });
-            observer.observe(targetNode, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                attributeFilter: ['class', 'style']
-            });
-        }
+    const targetNode = document.querySelector('.ant-table-wrapper') || document.body;
+    if (!targetNode) {
+        setTimeout(observeDOM, 1000);
+        return;
     }
+
+    debugLog('Начинаем наблюдение за DOM...');
+
+    const observer = new MutationObserver((mutations) => {
+        let shouldUpdate = false;
+
+        mutations.forEach(mutation => {
+            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                for (let node of mutation.addedNodes) {
+                    if (node.nodeType === 1) { // Element node
+                        if (node.querySelector && (
+                            node.querySelector('.ant-table-row') ||
+                            node.querySelector('.strong-tablestyled__MarkItemWrapper') ||
+                            node.querySelector('.ant-table-tbody')
+                        )) {
+                            shouldUpdate = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        });
+
+        if (shouldUpdate) {
+            debugLog('Обнаружены изменения DOM, обновляем кнопки...');
+            clearTimeout(window.egaisUpdateTimeout);
+            window.egaisUpdateTimeout = setTimeout(initializeButtons, 500);
+        }
+    });
+
+    observer.observe(targetNode, {
+        childList: true,
+        subtree: true
+    });
+
+    setTimeout(initializeButtons, 1500);
+
+    debugLog('DOM observer запущен');
+}
+
+    function initializeButtons() {
+    if (initializationInProgress) return;
+    initializationInProgress = true;
+
+    debugLog('Начало инициализации кнопок...');
+
+    try {
+        handleExpandButtons();
+        addEgaisButtons();
+        addNomenclatureButtons();
+        addManualSearchButton();
+        addCheckOrdersButton();
+
+        debugLog('Кнопки успешно инициализированы');
+    } catch (error) {
+        debugLog('Ошибка инициализации кнопок:', error);
+    } finally {
+        initializationInProgress = false;
+    }
+}
+
+
+
 
     function isTargetPage() {
         return window.location.href.includes('https://dxbx.ru/fe/egais/rests');
@@ -2277,18 +3445,25 @@
     }
 
     function init() {
-        legalPersonId = GM_getValue('legalPersonId');
-        debugLog('Script initialized', { legalPersonId });
-        interceptXHR();
-        createModal();
-        observeDOM();
-        handleExpandButtons();
+    legalPersonId = GM_getValue('legalPersonId');
+    debugLog('Скрипт инициализирован', { legalPersonId });
 
-        setInterval(handleExpandButtons, 2000);
-        setInterval(addEgaisButtons, 3000);
-        setInterval(addNomenclatureButtons, 3000);
-        setInterval(addManualSearchButton, 3000);
-    }
+    interceptXHR();
+    createModal();
+    createOrdersModal();
+
+    observeDOM();
+
+    setInterval(handleExpandButtons, 3000);
+    setInterval(() => {
+        if (!initializationInProgress) {
+            addEgaisButtons();
+            addNomenclatureButtons();
+        }
+    }, 5000);
+
+    debugLog('Все инициализаторы запущены');
+}
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
