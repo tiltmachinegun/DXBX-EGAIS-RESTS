@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DXBX EGAIS RESTS t.me/tiltmachinegun
 // @namespace    http://tampermonkey.net/
-// @version      5.0
+// @version      5.1
 // @description  Добавляет кнопку перехода на страницу бутылок, проверяет наличие в ТЗ, отображает shortMarkCode, генерирует DataMatrix и добавляет поиск по номенклатуре
 // @author       t.me/tiltmachinegun
 // @downloadUrl   https://raw.githubusercontent.com/tiltmachinegun/DXBX-EGAIS-RESTS/refs/heads/main/DXBX%20EGAIS%20RESTS%20t.me-tiltmachinegun.js
@@ -13,6 +13,8 @@
 // @grant        GM_log
 // @grant        GM_addStyle
 // @require      https://cdn.jsdelivr.net/npm/bwip-js@3.0.2/dist/bwip-js.min.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.js
+// @require      https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js
 // @connect      dxbx.ru
 // ==/UserScript==
 
@@ -1016,7 +1018,7 @@
                                 orderId: orderId,
                                 orderUrl: `https://dxbx.ru/index#app/edit/egaisorder/${orderId}`,
                                 itemId: itemId,
-                                nomenclature: itemDetails.nomenclature, 
+                                nomenclature: itemDetails.nomenclature,
                                 volume: bottle.volume || 'Не указано',
                                 fullMarkCode: bottle.code
                             });
@@ -2063,7 +2065,7 @@ async function displayOrdersInModal() {
                 <div class="filter-actions">
                     <button class="filter-button filter-apply" id="apply-filters">Применить фильтры</button>
                     <button class="filter-button filter-reset" id="reset-filters">Сбросить фильтры</button>
-                    <button class="filter-button filter-export" id="export-data">Экспорт в CSV</button>
+                    <button class="filter-button filter-export" id="export-data">Экспорт в XLS</button>
                     <button class="filter-button batch-action" id="toggle-selection">Режим выбора</button>
                 </div>
             </div>
@@ -2089,12 +2091,13 @@ async function displayOrdersInModal() {
         // Основные фильтры
         document.getElementById('apply-filters').addEventListener('click', applyFilters);
         document.getElementById('reset-filters').addEventListener('click', resetFilters);
-        document.getElementById('export-data').addEventListener('click', exportToCSV);
+
         document.getElementById('toggle-selection').addEventListener('click', toggleSelectionMode);
 
         document.getElementById('select-all').addEventListener('click', selectAll);
         document.getElementById('deselect-all').addEventListener('click', deselectAll);
-        document.getElementById('export-selected').addEventListener('click', exportSelected);
+        document.getElementById('export-data').addEventListener('click', exportToXLSX);
+    document.getElementById('export-selected').addEventListener('click', exportSelectedToXLSX);
 
         document.getElementById('nomenclature-filter').addEventListener('change', applyFilters);
         document.getElementById('volume-min').addEventListener('input', debounce(applyFilters, 300));
@@ -2331,56 +2334,6 @@ async function displayOrdersInModal() {
         document.getElementById('alko-count').textContent = alkoCount;
     }
 
-    function exportToCSV() {
-        const rows = document.querySelectorAll('.modal-table tbody tr:not([style*="display: none"])');
-        const headers = ['Номенклатура', 'Короткий код', 'Объем (мл)', 'Статус ТЗ', 'Дата обновления', 'Марка'];
-
-        let csvContent = headers.join(';') + '\n';
-
-        rows.forEach(row => {
-            const cells = row.querySelectorAll('td');
-            const rowData = [
-                cells[0]?.textContent || '',
-                cells[1]?.textContent || '',
-                cells[2]?.textContent || '',
-                cells[3]?.textContent || '',
-                cells[4]?.textContent || '',
-                row.getAttribute('data-mark') || ''
-            ].map(cell => `"${cell.replace(/"/g, '""')}"`).join(';');
-
-            csvContent += rowData + '\n';
-        });
-
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-
-        link.setAttribute('href', url);
-        link.setAttribute('download', `бутылки_${new Date().toISOString().split('T')[0]}.csv`);
-        link.style.visibility = 'hidden';
-
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
-
-    function populateNomenclatureFilter(bottles) {
-        const select = document.getElementById('nomenclature-filter');
-        const nomenclatureSet = new Set();
-
-        bottles.forEach(bottle => {
-            const nom = bottle.egaisNomenclatureInfo || 'Неизвестная номенклатура';
-            nomenclatureSet.add(nom);
-        });
-
-        select.innerHTML = '<option value="">Все номенклатуры</option>';
-        Array.from(nomenclatureSet).sort().forEach(nom => {
-            const option = document.createElement('option');
-            option.value = nom;
-            option.textContent = nom;
-            select.appendChild(option);
-        });
-    }
 
     function populateAlkoCodeFilter(bottles) {
         const select = document.getElementById('alko-code-filter');
@@ -2472,46 +2425,385 @@ async function displayOrdersInModal() {
         updateSelectedCount();
     }
 
-    function exportSelected() {
-        if (selectedBottles.size === 0) {
-            alert('Не выбрано ни одной бутылки для экспорта');
-            return;
-        }
+    async function prepareExportDataWithImages(rows) {
+    const data = [];
 
-        const rows = document.querySelectorAll('.modal-table tbody tr');
-        const headers = ['Номенклатура', 'Короткий код', 'Объем (мл)', 'Статус ТЗ', 'Дата обновления', 'Марка'];
+    for (const row of rows) {
+        if (row.style.display === 'none') continue;
 
-        let csvContent = headers.join(';') + '\n';
+        const cells = row.querySelectorAll('td');
+        const fullMark = row.getAttribute('data-mark') || '';
 
-        rows.forEach(row => {
-            const bottleId = row.getAttribute('data-bottle-id');
-            if (selectedBottles.has(bottleId)) {
-                const cells = row.querySelectorAll('td');
-                const rowData = [
-                    cells[0]?.textContent || '',
-                    cells[1]?.textContent || '',
-                    cells[2]?.textContent || '',
-                    cells[3]?.textContent || '',
-                    cells[4]?.textContent || '',
-                    row.getAttribute('data-mark') || ''
-                ].map(cell => `"${cell.replace(/"/g, '""')}"`).join(';');
-
-                csvContent += rowData + '\n';
-            }
+        console.log('Обрабатываем строку, количество ячеек:', cells.length);
+        cells.forEach((cell, index) => {
+            console.log(`Ячейка ${index}:`, getCleanTextContent(cell).substring(0, 50) + '...');
         });
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        const url = URL.createObjectURL(blob);
+        const hasData = Array.from(cells).some(cell => {
+            const text = getCleanTextContent(cell);
+            return text && text !== 'Н/Д' && text !== 'Загрузка...' && text !== 'Ошибка' && text !== 'Проверка...';
+        });
 
-        link.setAttribute('href', url);
-        link.setAttribute('download', `выбранные_бутылки_${new Date().toISOString().split('T')[0]}.csv`);
-        link.style.visibility = 'hidden';
+        if (!hasData && !fullMark) continue;
 
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        let datamatrixImage = '';
+        if (fullMark) {
+            datamatrixImage = await generateDataMatrixBase64Large(fullMark);
+        }
+        data.push({
+            nomenclature: getCleanTextContent(cells[0]) || '',
+            shortCode: getCleanTextContent(cells[1]) || '',
+            volume: extractVolumeText(cells[2]),
+            alkoCode: row.getAttribute('data-alko-code') || '',
+            fullMark: fullMark,
+            tzStatus: extractTZStatusText(cells[5]),
+            updateDate: getCleanTextContent(cells[6]) || '',
+            datamatrixImage: datamatrixImage
+        });
+
+        console.log('Добавлены данные:', {
+            nomenclature: getCleanTextContent(cells[0]),
+            shortCode: getCleanTextContent(cells[1]),
+            volume: extractVolumeText(cells[2]),
+            tzStatus: extractTZStatusText(cells[5]),
+            updateDate: getCleanTextContent(cells[6])
+        });
     }
+
+    return data;
+}
+
+function getCleanTextContent(element) {
+    if (!element) return '';
+
+    const clone = element.cloneNode(true);
+
+    const elementsToRemove = clone.querySelectorAll(
+        'button, .expand-toggle, .copy-mark, .generate-datamatrix, .volume-badge, .tz-status-modal, .modal-link'
+    );
+    elementsToRemove.forEach(el => el.remove());
+
+    let text = clone.textContent || '';
+
+    text = text.replace(/\s+/g, ' ').trim();
+
+    return text;
+}
+
+function extractVolumeText(volumeCell) {
+    if (!volumeCell) return '';
+
+    const clone = volumeCell.cloneNode(true);
+
+    const badge = clone.querySelector('.volume-badge');
+    if (badge) {
+        badge.remove();
+    }
+
+    let text = clone.textContent || '';
+    text = text.replace(/\s+/g, ' ').trim();
+
+    const volumeMatch = text.match(/(\d+)/);
+    if (volumeMatch) {
+        return volumeMatch[1];
+    }
+
+    return text;
+}
+
+function extractTZStatusText(tzCell) {
+    if (!tzCell) return '';
+
+    const statusElement = tzCell.querySelector('.tz-status-modal');
+    if (statusElement) {
+        const text = statusElement.textContent.trim();
+        if (text.includes('В ТЗ ✓')) return 'В ТЗ';
+        if (text.includes('Нет в ТЗ ✗')) return 'Не в ТЗ';
+        if (text.includes('Проверка...')) return 'Проверка';
+        return text;
+    }
+
+    return getCleanTextContent(tzCell);
+}
+
+async function exportToXLSX() {
+    const rows = document.querySelectorAll('.modal-table tbody tr:not([style*="display: none"])');
+
+    if (rows.length === 0) {
+        alert('Нет данных для экспорта');
+        return;
+    }
+
+    const exportButton = document.getElementById('export-data');
+    const originalText = exportButton.textContent;
+    exportButton.textContent = 'Подготовка...';
+    exportButton.disabled = true;
+
+    try {
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'EGAIS Script';
+        workbook.created = new Date();
+
+        const worksheet = workbook.addWorksheet('Бутылки');
+
+        worksheet.columns = [
+            { header: 'Номенклатура', key: 'nomenclature', width: 40 },
+            { header: 'Короткий код', key: 'shortCode', width: 15 },
+            { header: 'Объем (мл)', key: 'volume', width: 10 },
+            { header: 'Алкокод', key: 'alkoCode', width: 12 },
+            { header: 'Статус ТЗ', key: 'tzStatus', width: 12 },
+            { header: 'Дата обновления', key: 'updateDate', width: 15 },
+            { header: 'Полная марка', key: 'fullMark', width: 50 },
+            { header: 'DataMatrix', key: 'datamatrix', width: 30 }
+        ];
+
+        const headerRow = worksheet.getRow(1);
+        headerRow.font = { bold: true };
+        headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE6E6FA' }
+        };
+        headerRow.height = 25;
+и
+        const data = await prepareExportDataWithImages(rows);
+
+        const filteredData = data.filter(item =>
+            item.nomenclature ||
+            item.shortCode ||
+            item.volume ||
+            item.alkoCode ||
+            item.fullMark
+        );
+
+        console.log('Всего данных:', data.length, 'После фильтрации:', filteredData.length);
+
+        const addedRows = [];
+        for (let i = 0; i < filteredData.length; i++) {
+            const item = filteredData[i];
+
+            const row = worksheet.addRow({
+                nomenclature: item.nomenclature,
+                shortCode: item.shortCode,
+                volume: item.volume,
+                alkoCode: item.alkoCode,
+                tzStatus: item.tzStatus,
+                updateDate: item.updateDate,
+                fullMark: item.fullMark
+            });
+
+
+            row.height = 120;
+            addedRows.push({ row, item });
+        }
+
+
+        for (let i = 0; i < addedRows.length; i++) {
+            const { row, item } = addedRows[i];
+            if (item.datamatrixImage && item.fullMark) {
+                try {
+                    const imageId = workbook.addImage({
+                        base64: item.datamatrixImage,
+                        extension: 'png'
+                    });
+                    const rowNumber = row.number;
+
+                    worksheet.addImage(imageId, {
+                        tl: { col: 7, row: rowNumber - 1, offset: 5 },
+                        br: { col: 8, row: rowNumber, offset: -5 },
+                        editAs: 'oneCell'
+                    });
+
+                    console.log('Добавлено изображение для строки', rowNumber, 'данные:', i);
+
+                } catch (error) {
+                    console.error('Ошибка вставки изображения для строки', i + 2, ':', error);
+                }
+            }
+        }
+
+        const statsSheet = workbook.addWorksheet('Статистика');
+        statsSheet.columns = [
+            { header: 'Параметр', key: 'param', width: 25 },
+            { header: 'Значение', key: 'value', width: 20 }
+        ];
+
+        const statsData = [
+            { param: 'Дата экспорта', value: new Date().toLocaleString('ru-RU') },
+            { param: 'Всего записей', value: filteredData.length },
+            { param: 'В ТЗ', value: filteredData.filter(item => item.tzStatus === 'В ТЗ').length },
+            { param: 'Не в ТЗ', value: filteredData.filter(item => item.tzStatus === 'Не в ТЗ').length },
+            { param: 'Средний объем', value: Math.round(filteredData.reduce((sum, item) => sum + (parseInt(item.volume) || 0), 0) / Math.max(filteredData.length, 1)) + ' мл' }
+        ];
+
+        statsData.forEach(stat => {
+            statsSheet.addRow(stat);
+        });
+
+        statsSheet.getRow(1).font = { bold: true };
+        statsSheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF0F8FF' }
+        };
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
+
+        const fileName = `бутылки_${new Date().toISOString().split('T')[0]}.xlsx`;
+        saveAs(blob, fileName);
+
+    } catch (error) {
+        console.error('Ошибка экспорта:', error);
+        alert('Ошибка при экспорте: ' + error.message);
+    } finally {
+        exportButton.textContent = originalText;
+        exportButton.disabled = false;
+    }
+}
+
+async function exportSelectedToXLSX() {
+    const rows = document.querySelectorAll('.modal-table tbody tr');
+    const selectedRows = Array.from(rows).filter(row => {
+        const bottleId = row.getAttribute('data-bottle-id');
+        return selectedBottles.has(bottleId);
+    });
+
+    if (selectedRows.length === 0) {
+        alert('Не выбрано ни одной бутылки для экспорта');
+        return;
+    }
+
+    const exportButton = document.getElementById('export-selected');
+    const originalText = exportButton.textContent;
+    exportButton.textContent = 'Подготовка...';
+    exportButton.disabled = true;
+
+    try {
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'EGAIS Script';
+        workbook.created = new Date();
+
+        const worksheet = workbook.addWorksheet('Выбранные бутылки');
+
+        worksheet.columns = [
+            { header: 'Номенклатура', key: 'nomenclature', width: 40 },
+            { header: 'Короткий код', key: 'shortCode', width: 15 },
+            { header: 'Объем (мл)', key: 'volume', width: 10 },
+            { header: 'Алкокод', key: 'alkoCode', width: 12 },
+            { header: 'Статус ТЗ', key: 'tzStatus', width: 12 },
+            { header: 'Дата обновления', key: 'updateDate', width: 15 },
+            { header: 'Полная марка', key: 'fullMark', width: 50 },
+            { header: 'DataMatrix', key: 'datamatrix', width: 30 }
+        ];
+
+        const headerRow = worksheet.getRow(1);
+        headerRow.font = { bold: true };
+        headerRow.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE6E6FA' }
+        };
+        headerRow.height = 25;
+
+        const data = await prepareExportDataWithImages(selectedRows);
+
+        const filteredData = data.filter(item =>
+            item.nomenclature ||
+            item.shortCode ||
+            item.volume ||
+            item.alkoCode ||
+            item.fullMark
+        );
+
+        for (let i = 0; i < filteredData.length; i++) {
+            const item = filteredData[i];
+            const row = worksheet.addRow({
+                nomenclature: item.nomenclature,
+                shortCode: item.shortCode,
+                volume: item.volume,
+                alkoCode: item.alkoCode,
+                tzStatus: item.tzStatus,
+                updateDate: item.updateDate,
+                fullMark: item.fullMark
+            });
+
+            row.height = 120;
+
+            if (item.datamatrixImage && item.fullMark) {
+                try {
+                    const imageId = workbook.addImage({
+                        base64: item.datamatrixImage,
+                        extension: 'png'
+                    });
+
+                    const rowNumber = row.number;
+
+                    worksheet.addImage(imageId, {
+                        tl: { col: 7, row: rowNumber - 1, offset: 5 },
+                        br: { col: 8, row: rowNumber, offset: -5 },
+                        editAs: 'oneCell'
+                    });
+
+                    console.log('Добавлено изображение для выбранной строки', rowNumber);
+
+                } catch (error) {
+                    console.error('Ошибка вставки изображения:', error);
+                }
+            }
+        }
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        });
+
+        const fileName = `выбранные_бутылки_${new Date().toISOString().split('T')[0]}.xlsx`;
+        saveAs(blob, fileName);
+
+    } catch (error) {
+        console.error('Ошибка экспорта:', error);
+        alert('Ошибка при экспорте: ' + error.message);
+    } finally {
+        exportButton.textContent = originalText;
+        exportButton.disabled = false;
+    }
+}
+    function generateDataMatrixBase64Large(markCode) {
+    return new Promise((resolve) => {
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            canvas.width = 400;
+            canvas.height = 400;
+
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            bwipjs.toCanvas(canvas, {
+                bcid: 'datamatrix',
+                text: markCode,
+                scale: 6,
+                height: 60,
+                width: 60,
+                includetext: false,
+            });
+
+            const dataURL = canvas.toDataURL('image/png');
+            const base64 = dataURL.replace(/^data:image\/png;base64,/, '');
+            resolve(base64);
+
+        } catch (error) {
+            console.error('Ошибка генерации DataMatrix:', error);
+            resolve('');
+        }
+    });
+}
+
+
 
     async function displayResultsInModal(results, nomenclature, currentLegalPersonId, positionName = '') {
         const content = document.querySelector('.modal-content');
@@ -2617,6 +2909,24 @@ async function displayOrdersInModal() {
         populateNomenclatureFilter(activeBottles);
         populateAlkoCodeFilter(activeBottles);
         await loadBottleDetails();
+    }
+
+    function populateNomenclatureFilter(bottles) {
+        const select = document.getElementById('nomenclature-filter');
+        const nomenclatureSet = new Set();
+
+        bottles.forEach(bottle => {
+            const nom = bottle.egaisNomenclatureInfo || 'Неизвестная номенклатура';
+            nomenclatureSet.add(nom);
+        });
+
+        select.innerHTML = '<option value="">Все номенклатуры</option>';
+        Array.from(nomenclatureSet).sort().forEach(nom => {
+            const option = document.createElement('option');
+            option.value = nom;
+            option.textContent = nom;
+            select.appendChild(option);
+        });
     }
 
 
