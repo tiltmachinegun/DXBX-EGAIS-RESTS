@@ -842,7 +842,6 @@
             if (!ordersData || !ordersData.data || ordersData.data.length === 0) {
                 debugLog('Нет открытых заказов');
                 ordersLoaded = true;
-                // Сохраняем в кэш даже пустой результат
                 ordersCache[cacheKey] = {};
                 ordersCache[`${cacheKey}_timestamp`] = now;
                 GM_setValue('ordersCache', ordersCache);
@@ -859,7 +858,6 @@
                     batch.map(order => processOrder(order.DT_RowId, legalPersonId))
                 );
 
-                // Небольшая задержка между батчами
                 if (i + BATCH_SIZE < ordersData.data.length) {
                     await new Promise(resolve => setTimeout(resolve, 100));
                 }
@@ -867,7 +865,6 @@
 
             ordersLoaded = true;
 
-            // Сохраняем в кэш
             ordersCache[cacheKey] = ordersByMarkCode;
             ordersCache[`${cacheKey}_timestamp`] = now;
             GM_setValue('ordersCache', ordersCache);
@@ -1213,94 +1210,99 @@ function closeModal() {
 function reloadOrders(legalPersonId) {
         debugLog('Принудительная перезагрузка заказов...');
         ordersByMarkCode = {};
-        bottleCheckCache = {}; // Очищаем кэш проверки бутылок
+        bottleCheckCache = {}; 
         return loadOpenOrders(legalPersonId, true);
     }
 
 function addCheckOrdersButton() {
-        if (!isTargetPage()) return;
-        if (!legalPersonId) return;
+    if (!isTargetPage()) return;
+    if (!legalPersonId) return;
 
-        const tableWrapper = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0.gsbGPr');
-        if (!tableWrapper) return;
+    const tableWrapper = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0');
+    if (!tableWrapper) return;
 
-        if (tableWrapper.querySelector('.orders-buttons-container')) {
+    const form = document.querySelector('form.ant-form');
+    if (!form) return;
+
+    if (form.querySelector('.orders-buttons-container')) {
+        return;
+    }
+
+    const ordersContainer = document.createElement('div');
+    ordersContainer.className = 'orders-buttons-container';
+    ordersContainer.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-left: 8px; margin-bottom: 16px;';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'check-orders-button';
+    button.textContent = 'Проверить заказы';
+    button.title = 'Показать открытые заказы и сопоставление с бутылками';
+
+    button.addEventListener('click', async () => {
+        const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
+        if (!currentLegalPersonId) {
+            alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
             return;
         }
 
-        const ordersContainer = document.createElement('div');
-        ordersContainer.className = 'orders-buttons-container';
-        ordersContainer.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-left: 8px; margin-bottom: 16px;';
+        openOrdersModal();
 
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'check-orders-button';
-        button.textContent = 'Проверить заказы';
-        button.title = 'Показать открытые заказы и сопоставление с бутылками';
+        if (!ordersLoaded && !ordersLoading) {
+            debugLog('Начало загрузки заказов по кнопке...');
+            await loadOpenOrders(currentLegalPersonId);
+        } else if (ordersLoading) {
+            debugLog('Заказы уже загружаются...');
+        } else {
+            debugLog('Заказы уже загружены, показываем результаты...');
+        }
 
-        button.addEventListener('click', async () => {
-            const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
-            if (!currentLegalPersonId) {
-                alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
-                return;
-            }
+        displayOrdersInModal();
+    });
 
-            openOrdersModal();
+    const reloadButton = document.createElement('button');
+    reloadButton.type = 'button';
+    reloadButton.className = 'check-orders-button reload-orders-button';
+    reloadButton.textContent = 'Обновить заказы';
+    reloadButton.title = 'Перезагрузить данные заказов';
+    reloadButton.style.marginLeft = '5px';
+    reloadButton.style.backgroundColor = '#fa8c16';
 
-            if (!ordersLoaded && !ordersLoading) {
-                debugLog('Начало загрузки заказов по кнопке...');
-                await loadOpenOrders(currentLegalPersonId);
-            } else if (ordersLoading) {
-                debugLog('Заказы уже загружаются...');
-            } else {
-                debugLog('Заказы уже загружены, показываем результаты...');
-            }
+    reloadButton.addEventListener('click', async () => {
+        const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
+        if (!currentLegalPersonId) {
+            alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
+            return;
+        }
 
+        if (document.querySelector('.orders-modal.active')) {
+            const content = document.querySelector('.orders-modal .modal-content');
+            content.innerHTML = '<div class="loading-spinner">Перезагрузка заказов...</div>';
+        }
+
+        ordersLoaded = false;
+        ordersLoading = false;
+        await reloadOrders(currentLegalPersonId);
+
+        if (document.querySelector('.orders-modal.active')) {
             displayOrdersInModal();
-        });
+        }
+    });
 
-        const reloadButton = document.createElement('button');
-        reloadButton.type = 'button';
-        reloadButton.className = 'check-orders-button reload-orders-button';
-        reloadButton.textContent = 'Обновить заказы';
-        reloadButton.title = 'Перезагрузить данные заказов';
-        reloadButton.style.marginLeft = '5px';
-        reloadButton.style.backgroundColor = '#fa8c16';
+    ordersContainer.appendChild(button);
+    ordersContainer.appendChild(reloadButton);
 
-        reloadButton.addEventListener('click', async () => {
-            const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
-            if (!currentLegalPersonId) {
-                alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
-                return;
-            }
-
-            if (document.querySelector('.orders-modal.active')) {
-                const content = document.querySelector('.orders-modal .modal-content');
-                content.innerHTML = '<div class="loading-spinner">Перезагрузка заказов...</div>';
-            }
-
-            ordersLoaded = false;
-            ordersLoading = false;
-            await reloadOrders(currentLegalPersonId);
-
-            if (document.querySelector('.orders-modal.active')) {
-                displayOrdersInModal();
-            }
-        });
-
-        ordersContainer.appendChild(button);
-        ordersContainer.appendChild(reloadButton);
-
-        tableWrapper.insertBefore(ordersContainer, tableWrapper.firstChild);
+    const manualSearch = form.querySelector('.manual-search-container');
+    if (manualSearch && manualSearch.nextSibling) {
+        form.insertBefore(ordersContainer, manualSearch.nextSibling);
+    } else {
+        const segmentedControl = form.querySelector('.ant-segmented');
+        if (segmentedControl && segmentedControl.nextSibling) {
+            form.insertBefore(ordersContainer, segmentedControl.nextSibling);
+        } else {
+            form.insertBefore(ordersContainer, tableWrapper);
+        }
     }
-GM_addStyle(`
-    .check-orders-button.reload {
-        background-color: #fa8c16;
-    }
-    .check-orders-button.reload:hover {
-        background-color: #d46b08;
-    }
-`);
+}
 
 
 async function displayOrdersInModal() {
@@ -1498,7 +1500,6 @@ async function displayOrdersInModal() {
 
         totalOrders = orderMap.size;
 
-        // Показываем начальную статистику
         let html = `
             <div class="orders-summary">
                 <div class="summary-stats">
@@ -1543,7 +1544,6 @@ async function displayOrdersInModal() {
                         <div style="margin-top: 8px;"><strong>Бутылки в заказе:</strong></div>
             `;
 
-            // Проверяем каждую бутылку в заказе с кэшированием
             for (const bottle of orderData.bottles) {
                 const cacheKey = `${currentLegalPersonId}_${bottle.shortCode}`;
 
@@ -2565,7 +2565,6 @@ async function exportToXLSX() {
             fgColor: { argb: 'FFE6E6FA' }
         };
         headerRow.height = 25;
-и
         const data = await prepareExportDataWithImages(rows);
 
         const filteredData = data.filter(item =>
@@ -2654,7 +2653,6 @@ async function exportToXLSX() {
 
         const fileName = `бутылки_${new Date().toISOString().split('T')[0]}.xlsx`;
         saveAs(blob, fileName);
-
     } catch (error) {
         console.error('Ошибка экспорта:', error);
         alert('Ошибка при экспорте: ' + error.message);
@@ -3022,35 +3020,49 @@ async function exportSelectedToXLSX() {
     function addNomenclatureButtons() {
     if (!isTargetPage()) return;
 
-    const strongAlcoholTable = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0.gsbGPr');
+    const strongAlcoholTable = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0');
     if (!strongAlcoholTable) {
         debugLog('Таблица не найдена');
         return;
     }
 
-    const mainTable = strongAlcoholTable.querySelector('.ant-table-tbody:not(.restsstyled__ExpandedTableWrapper-sc-1oz76wz-5 .ant-table-tbody)');
+    const mainTable = strongAlcoholTable.querySelector('.ant-table-tbody');
     if (!mainTable) {
         debugLog('Основное тело таблицы не найдено');
         return;
     }
 
-    const rows = mainTable.querySelectorAll('.ant-table-row.ant-table-row-level-0');
-    debugLog(`Найдено строк: ${rows.length}`);
+    const rows = mainTable.querySelectorAll('tr.ant-table-row.ant-table-row-level-0:not(.ant-table-expanded-row)');
+    debugLog(`Найдено основных строк верхнего уровня: ${rows.length}`);
 
     let buttonsAdded = 0;
 
     rows.forEach(row => {
-        const cells = row.querySelectorAll('.ant-table-cell');
-        if (cells.length >= 3) {
-            const nomenclatureCell = cells[2];
-            const nomenclature = nomenclatureCell.textContent.trim();
+        const isMainTableRow = !row.closest('.restsstyled__ExpandedTableWrapper-sc-1oz76wz-5');
+        if (!isMainTableRow) return;
 
-            const positionNameCell = cells[0];
-            const positionName = positionNameCell.textContent.trim();
+        const cells = row.querySelectorAll('.ant-table-cell');
+        debugLog(`Количество ячеек в строке: ${cells.length}`);
+        cells.forEach((cell, index) => {
+            debugLog(`Ячейка ${index}: "${cell.textContent.trim().substring(0, 50)}..."`);
+        });
+
+        if (cells.length >= 3) {
+            const alkoCodeCell = cells[1];
+            const nomenclatureCell = cells[2];
+
+            const alkoCode = alkoCodeCell.textContent.trim();
+            let nomenclature = nomenclatureCell.textContent.trim();
+
+            debugLog(`Обрабатываем: алкокод="${alkoCode}", номенклатура="${nomenclature.substring(0, 50)}..."`);
 
             if (nomenclature &&
-                nomenclature.length > 3 &&
+                nomenclature.length > 10 &&
+                !nomenclature.match(/^\d+$/) &&
                 !nomenclatureCell.querySelector('.nomenclature-button')) {
+
+                const existingButtons = nomenclatureCell.querySelectorAll('.nomenclature-button');
+                existingButtons.forEach(btn => btn.remove());
 
                 const button = document.createElement('button');
                 button.className = 'nomenclature-button';
@@ -3059,6 +3071,7 @@ async function exportSelectedToXLSX() {
 
                 button.addEventListener('click', async (e) => {
                     e.stopPropagation();
+                    e.preventDefault();
 
                     const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
                     if (!currentLegalPersonId) {
@@ -3066,21 +3079,21 @@ async function exportSelectedToXLSX() {
                         return;
                     }
 
-                    openModal(nomenclature, positionName);
+                    openModal(nomenclature, alkoCode);
 
                     const content = document.querySelector('.modal-content');
                     content.innerHTML = '<div class="loading-spinner">Поиск активных бутылок...</div>';
 
                     try {
                         const results = await searchBottlesByNomenclature(nomenclature, currentLegalPersonId);
-                        await displayResultsInModal(results, nomenclature, currentLegalPersonId, positionName);
+                        await displayResultsInModal(results, nomenclature, currentLegalPersonId, alkoCode);
                     } catch (error) {
                         console.error('Ошибка поиска:', error);
                         content.innerHTML = `
                             <div class="error-message">
                                 Ошибка при поиске бутылок: ${error.message}<br>
                                 <small>Попробуйте обновить страницу и повторить попытку</small>
-                                ${positionName ? `<br>Позиция: ${positionName}` : ''}
+                                ${alkoCode ? `<br>Алкокод: ${alkoCode}` : ''}
                             </div>
                         `;
                     }
@@ -3088,137 +3101,153 @@ async function exportSelectedToXLSX() {
 
                 nomenclatureCell.appendChild(button);
                 buttonsAdded++;
+                debugLog(`Добавлена кнопка для номенклатуры: ${nomenclature.substring(0, 50)}...`);
+            } else {
+                debugLog(`Пропуск: "${nomenclature}" - не подходит под критерии номенклатуры`);
             }
         }
     });
 
-    debugLog(`Добавлено кнопок номенклатуры: ${buttonsAdded}`);
+    debugLog(`Итого добавлено кнопок номенклатуры: ${buttonsAdded}`);
 }
 
     function addManualSearchButton() {
-        if (!isTargetPage()) return;
+    if (!isTargetPage()) return;
 
-        const tableWrapper = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0.gsbGPr');
-        if (!tableWrapper) return;
+    const tableWrapper = document.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0');
+    if (!tableWrapper) return;
+    const form = document.querySelector('form.ant-form');
+    if (!form) return;
 
-        if (tableWrapper.querySelector('.manual-search-container')) {
+    if (form.querySelector('.manual-search-container')) {
+        return;
+    }
+
+    const searchContainer = document.createElement('div');
+    searchContainer.className = 'manual-search-container';
+
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.className = 'manual-search-input';
+    searchInput.placeholder = 'Введите номенклатуру для поиска';
+
+    const searchButton = document.createElement('button');
+    searchButton.type = 'button';
+    searchButton.className = 'manual-search-button';
+    searchButton.textContent = 'Поиск бутылок';
+
+    searchButton.addEventListener('click', async () => {
+        const nomenclature = searchInput.value.trim();
+        if (!nomenclature) {
+            alert('Пожалуйста, введите номенклатуру для поиска');
             return;
         }
 
-        const searchContainer = document.createElement('div');
-        searchContainer.className = 'manual-search-container';
+        const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
+        if (!currentLegalPersonId) {
+            alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
+            return;
+        }
 
-        const searchInput = document.createElement('input');
-        searchInput.type = 'text';
-        searchInput.className = 'manual-search-input';
-        searchInput.placeholder = 'Введите номенклатуру для поиска';
+        openModal(nomenclature);
 
-        const searchButton = document.createElement('button');
-        searchButton.type = 'button';
-        searchButton.className = 'manual-search-button';
-        searchButton.textContent = 'Поиск бутылок';
+        const content = document.querySelector('.modal-content');
+        content.innerHTML = '<div class="loading-spinner">Поиск активных бутылок...</div>';
 
-        searchButton.addEventListener('click', async () => {
-            const nomenclature = searchInput.value.trim();
-            if (!nomenclature) {
-                alert('Пожалуйста, введите номенклатуру для поиска');
-                return;
-            }
+        try {
+            const results = await searchBottlesByNomenclature(nomenclature, currentLegalPersonId);
+            await displayResultsInModal(results, nomenclature, currentLegalPersonId);
+        } catch (error) {
+            console.error('Ошибка поиска:', error);
+            content.innerHTML = `
+                <div class="error-message">
+                    Ошибка при поиске бутылок: ${error.message}<br>
+                    <small>Попробуйте обновить страницу и повторить попытку</small>
+                </div>
+            `;
+        }
+    });
 
-            const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
-            if (!currentLegalPersonId) {
-                alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.');
-                return;
-            }
+    searchInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            searchButton.click();
+        }
+    });
 
-            openModal(nomenclature);
+    searchContainer.appendChild(searchInput);
+    searchContainer.appendChild(searchButton);
+    const segmentedControl = form.querySelector('.ant-segmented');
+    if (segmentedControl && segmentedControl.nextSibling) {
+        form.insertBefore(searchContainer, segmentedControl.nextSibling);
+    } else {
+        form.insertBefore(searchContainer, tableWrapper);
+    }
+}
 
-            const content = document.querySelector('.modal-content');
-            content.innerHTML = '<div class="loading-spinner">Поиск активных бутылок...</div>';
+  async function addEgaisButtons() {
+    if (!isTargetPage()) return;
 
-            try {
-                const results = await searchBottlesByNomenclature(nomenclature, currentLegalPersonId);
-                await displayResultsInModal(results, nomenclature, currentLegalPersonId);
-            } catch (error) {
-                console.error('Ошибка поиска:', error);
-                content.innerHTML = `
-                    <div class="error-message">
-                        Ошибка при поиске бутылок: ${error.message}<br>
-                        <small>Попробуйте обновить страницу и повторить попытку</small>
-                    </div>
-                `;
-            }
-        });
+    const markElements = document.querySelectorAll('.strong-tablestyled__MarkItemWrapper-sc-1ppi8vp-1.gOhuPU');
 
-        searchInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                searchButton.click();
-            }
-        });
+    for (const markElement of markElements) {
+        if (markElement.offsetParent !== null) {
+            const existingContainer = markElement.parentNode.querySelector('.egais-buttons-container');
+            if (existingContainer) continue;
 
-        searchContainer.appendChild(searchInput);
-        searchContainer.appendChild(searchButton);
+            const markCode = markElement.textContent.trim();
 
-        const ordersContainer = tableWrapper.querySelector('.orders-buttons-container');
-        if (ordersContainer) {
-            tableWrapper.insertBefore(searchContainer, ordersContainer.nextSibling);
-        } else {
-            tableWrapper.insertBefore(searchContainer, tableWrapper.firstChild);
+            const container = document.createElement('div');
+            container.className = 'egais-buttons-container';
+            container.style.cssText = `
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-left: 10px;
+                flex-wrap: wrap;
+            `;
+
+            const button = createEgaisButton(markCode);
+            const datamatrixButton = createDataMatrixButton(markCode);
+
+            const shortMarkCodeElement = document.createElement('span');
+            shortMarkCodeElement.className = 'short-mark-code';
+            shortMarkCodeElement.style.cssText = `
+                font-size: 12px;
+                color: #666;
+                margin-right: 5px;
+            `;
+            shortMarkCodeElement.textContent = 'Загрузка...';
+
+            const tzStatus = document.createElement('span');
+            tzStatus.className = 'tz-status';
+            tzStatus.style.cssText = `
+                font-size: 12px;
+                padding: 2px 6px;
+                border-radius: 3px;
+                background-color: #f0f0f0;
+            `;
+            tzStatus.textContent = 'Проверка...';
+
+            container.appendChild(button);
+            container.appendChild(datamatrixButton);
+            container.appendChild(shortMarkCodeElement);
+            container.appendChild(tzStatus);
+            markElement.parentNode.insertBefore(container, markElement.nextSibling);
+
+            await Promise.all([
+                loadShortMarkCode(markCode, shortMarkCodeElement),
+                checkTZStatus(markCode, tzStatus)
+            ]);
         }
     }
 
-    async function addEgaisButtons() {
-        if (!isTargetPage()) return;
-        const markElements = document.querySelectorAll('.strong-tablestyled__MarkItemWrapper-sc-1ppi8vp-1.gOhuPU');
+    const markCells = document.querySelectorAll('.ant-table-cell .strong-tablestyled__MarkItemWrapper-sc-1ppi8vp-1');
+    markCells.forEach(cell => {
+        const nomenclatureButtons = cell.parentNode.querySelectorAll('.nomenclature-button');
+        nomenclatureButtons.forEach(btn => btn.remove());
+    });
+}
 
-        for (const markElement of markElements) {
-            if (markElement.offsetParent !== null && !markElement.parentNode.querySelector('.egais-link-button')) {
-                const markCode = markElement.textContent.trim();
-
-                const container = document.createElement('div');
-                container.style.cssText = `
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                    margin-left: 10px;
-                    flex-wrap: wrap;
-                `;
-
-                const button = createEgaisButton(markCode);
-                const datamatrixButton = createDataMatrixButton(markCode);
-
-                const shortMarkCodeElement = document.createElement('span');
-                shortMarkCodeElement.className = 'short-mark-code';
-                shortMarkCodeElement.style.cssText = `
-                    font-size: 12px;
-                    color: #666;
-                    margin-right: 5px;
-                `;
-                shortMarkCodeElement.textContent = 'Загрузка...';
-
-                const tzStatus = document.createElement('span');
-                tzStatus.className = 'tz-status';
-                tzStatus.style.cssText = `
-                    font-size: 12px;
-                    padding: 2px 6px;
-                    border-radius: 3px;
-                    background-color: #f0f0f0;
-                `;
-                tzStatus.textContent = 'Проверка...';
-
-                container.appendChild(button);
-                container.appendChild(datamatrixButton);
-                container.appendChild(shortMarkCodeElement);
-                container.appendChild(tzStatus);
-                markElement.parentNode.appendChild(container);
-
-                await Promise.all([
-                    loadShortMarkCode(markCode, shortMarkCodeElement),
-                    checkTZStatus(markCode, tzStatus)
-                ]);
-            }
-        }
-    }
 
     function createEgaisButton(markCode) {
         const button = document.createElement('button');
@@ -3665,8 +3694,8 @@ async function exportSelectedToXLSX() {
         });
     }
 
-    function observeDOM() {
-    const targetNode = document.querySelector('.ant-table-wrapper') || document.body;
+   function observeDOM() {
+    const targetNode = document.querySelector('.restsstyled__Wrapper-sc-1oz76wz-0') || document.body;
     if (!targetNode) {
         setTimeout(observeDOM, 1000);
         return;
@@ -3680,11 +3709,12 @@ async function exportSelectedToXLSX() {
         mutations.forEach(mutation => {
             if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
                 for (let node of mutation.addedNodes) {
-                    if (node.nodeType === 1) { // Element node
+                    if (node.nodeType === 1) {
                         if (node.querySelector && (
-                            node.querySelector('.ant-table-row') ||
+                            node.querySelector('.ant-table-row.ant-table-row-level-0') ||
                             node.querySelector('.strong-tablestyled__MarkItemWrapper') ||
-                            node.querySelector('.ant-table-tbody')
+                            node.querySelector('.ant-table-tbody') ||
+                            node.classList?.contains('ant-table-wrapper')
                         )) {
                             shouldUpdate = true;
                             break;
@@ -3697,7 +3727,10 @@ async function exportSelectedToXLSX() {
         if (shouldUpdate) {
             debugLog('Обнаружены изменения DOM, обновляем кнопки...');
             clearTimeout(window.egaisUpdateTimeout);
-            window.egaisUpdateTimeout = setTimeout(initializeButtons, 500);
+            window.egaisUpdateTimeout = setTimeout(() => {
+                initializationInProgress = false;
+                initializeButtons();
+            }, 1000);
         }
     });
 
@@ -3706,8 +3739,7 @@ async function exportSelectedToXLSX() {
         subtree: true
     });
 
-    setTimeout(initializeButtons, 1500);
-
+    setTimeout(initializeButtons, 2000);
     debugLog('DOM observer запущен');
 }
 
@@ -3718,6 +3750,17 @@ async function exportSelectedToXLSX() {
     debugLog('Начало инициализации кнопок...');
 
     try {
+        const oldNomenclatureButtons = document.querySelectorAll('.nomenclature-button');
+        oldNomenclatureButtons.forEach(button => {
+            const parentCell = button.closest('.ant-table-cell');
+            if (parentCell && !parentCell.querySelector('.strong-tablestyled__MarkItemWrapper-sc-1ppi8vp-1')) {
+                button.remove();
+            }
+        });
+
+        const oldEgaisContainers = document.querySelectorAll('.egais-buttons-container');
+        oldEgaisContainers.forEach(container => container.remove());
+
         handleExpandButtons();
         addEgaisButtons();
         addNomenclatureButtons();
