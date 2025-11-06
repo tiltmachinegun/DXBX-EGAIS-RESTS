@@ -3308,95 +3308,207 @@ async function exportSelectedToXLSX() {
     }
 
     function generateDataMatrix(markCode) {
-        let modal = document.getElementById('datamatrix-modal');
-        if (modal) {
-            modal.remove();
-        }
-
-        modal = document.createElement('div');
-        modal.id = 'datamatrix-modal';
-        modal.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            z-index: 10000;
-            min-width: 300px;
-            text-align: center;
-        `;
-
-        const title = document.createElement('h3');
-        title.textContent = 'DataMatrix ECC200';
-        title.style.cssText = 'margin: 0 0 15px 0; font-size: 16px;';
-        modal.appendChild(title);
-
-        const dmContainer = document.createElement('div');
-        dmContainer.id = 'datamatrix-container';
-        dmContainer.style.cssText = 'margin: 10px 0; display: flex; justify-content: center;';
-        modal.appendChild(dmContainer);
-
-        const codeText = document.createElement('div');
-        codeText.textContent = markCode;
-        codeText.style.cssText = 'font-family: monospace; font-size: 12px; margin: 10px 0; word-break: break-all;';
-        modal.appendChild(codeText);
-
-        const closeButton = document.createElement('button');
-        closeButton.textContent = 'Закрыть';
-        closeButton.style.cssText = `
-            padding: 8px 16px;
-            background-color: #dc3545;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-top: 10px;
-        `;
-        closeButton.addEventListener('click', () => {
-            modal.remove();
-            overlay.remove();
-        });
-        modal.appendChild(closeButton);
-
-        const overlay = document.createElement('div');
-        overlay.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 9999;
-        `;
-        overlay.addEventListener('click', () => {
-            modal.remove();
-            overlay.remove();
-        });
-
-        document.body.appendChild(overlay);
-        document.body.appendChild(modal);
-
-        try {
-            dmContainer.innerHTML = '';
-
-            const canvas = document.createElement('canvas');
-            dmContainer.appendChild(canvas);
-
-            bwipjs.toCanvas(canvas, {
-                bcid: 'datamatrix',
-                text: markCode,
-                scale: 3,
-                height: 30,
-                includetext: false,
-            });
-        } catch (error) {
-            console.error('Ошибка генерации DataMatrix:', error);
-            dmContainer.innerHTML = '<div style="color: red;">Ошибка генерации кода: ' + error.message + '</div>';
-        }
+    let modal = document.getElementById('datamatrix-modal');
+    if (modal) {
+        modal.remove();
     }
+
+    modal = document.createElement('div');
+    modal.id = 'datamatrix-modal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        z-index: 10000;
+        min-width: 300px;
+        text-align: center;
+    `;
+
+    const title = document.createElement('h3');
+    title.textContent = 'DataMatrix ECC200';
+    title.style.cssText = 'margin: 0 0 15px 0; font-size: 16px;';
+    modal.appendChild(title);
+
+    const dmContainer = document.createElement('div');
+    dmContainer.id = 'datamatrix-container';
+    dmContainer.style.cssText = 'margin: 10px 0; display: flex; justify-content: center;';
+    modal.appendChild(dmContainer);
+
+    const codeText = document.createElement('div');
+    codeText.textContent = markCode;
+    codeText.style.cssText = 'font-family: monospace; font-size: 12px; margin: 10px 0; word-break: break-all; padding: 8px; background: #f5f5f5; border-radius: 4px;';
+    modal.appendChild(codeText);
+
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.style.cssText = 'display: flex; gap: 8px; justify-content: center; margin-top: 15px;';
+
+    const copyButton = document.createElement('button');
+    copyButton.textContent = 'Копировать изображение';
+    copyButton.style.cssText = `
+        padding: 8px 16px;
+        background-color: #1890ff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+    `;
+
+    const closeButton = document.createElement('button');
+    closeButton.textContent = 'Закрыть';
+    closeButton.style.cssText = `
+        padding: 8px 16px;
+        background-color: #dc3545;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+    `;
+    closeButton.addEventListener('click', () => {
+        modal.remove();
+        overlay.remove();
+    });
+
+    buttonsContainer.appendChild(copyButton);
+    buttonsContainer.appendChild(closeButton);
+    modal.appendChild(buttonsContainer);
+
+    const overlay = document.createElement('div');
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 9999;
+    `;
+    overlay.addEventListener('click', () => {
+        modal.remove();
+        overlay.remove();
+    });
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(modal);
+
+    try {
+        dmContainer.innerHTML = '';
+
+        const canvas = document.createElement('canvas');
+        canvas.id = 'datamatrix-canvas';
+        dmContainer.appendChild(canvas);
+
+        bwipjs.toCanvas(canvas, {
+            bcid: 'datamatrix',
+            text: markCode,
+            scale: 3,
+            height: 30,
+            includetext: false,
+        });
+
+        copyButton.addEventListener('click', async () => {
+            try {
+                const originalCanvas = document.getElementById('datamatrix-canvas');
+
+                const borderSize = 25;
+                const borderedCanvas = document.createElement('canvas');
+                const ctx = borderedCanvas.getContext('2d');
+
+                borderedCanvas.width = originalCanvas.width + (borderSize * 2);
+                borderedCanvas.height = originalCanvas.height + (borderSize * 2);
+
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, borderedCanvas.width, borderedCanvas.height);
+
+                ctx.drawImage(originalCanvas, borderSize, borderSize);
+
+                borderedCanvas.toBlob(async (blob) => {
+                    try {
+                        await navigator.clipboard.write([
+                            new ClipboardItem({
+                                [blob.type]: blob
+                            })
+                        ]);
+
+                        const originalText = copyButton.textContent;
+                        copyButton.textContent = 'Скопировано!';
+                        copyButton.style.backgroundColor = '#52c41a';
+                        setTimeout(() => {
+                            copyButton.textContent = originalText;
+                            copyButton.style.backgroundColor = '#1890ff';
+                        }, 2000);
+
+                    } catch (err) {
+                        console.error('Ошибка копирования:', err);
+                        fallbackCopyImage(borderedCanvas);
+                    }
+                }, 'image/png');
+
+            } catch (error) {
+                console.error('Ошибка:', error);
+                copyButton.textContent = 'Ошибка!';
+                copyButton.style.backgroundColor = '#ff4d4f';
+                setTimeout(() => {
+                    copyButton.textContent = 'Копировать изображение';
+                    copyButton.style.backgroundColor = '#1890ff';
+                }, 2000);
+            }
+        });
+
+    } catch (error) {
+        console.error('Ошибка генерации DataMatrix:', error);
+        dmContainer.innerHTML = '<div style="color: red;">Ошибка генерации кода: ' + error.message + '</div>';
+
+        copyButton.disabled = true;
+        copyButton.textContent = 'Ошибка генерации';
+        copyButton.style.backgroundColor = '#ccc';
+    }
+}
+
+function fallbackCopyImage(canvas) {
+    try {
+        const tempImg = document.createElement('img');
+        tempImg.src = canvas.toDataURL('image/png');
+
+        const tempDiv = document.createElement('div');
+        tempDiv.style.position = 'fixed';
+        tempDiv.style.left = '-9999px';
+        tempDiv.appendChild(tempImg);
+        document.body.appendChild(tempDiv);
+
+        const range = document.createRange();
+        range.selectNode(tempImg);
+        const selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+
+        const successful = document.execCommand('copy');
+
+        selection.removeAllRanges();
+        document.body.removeChild(tempDiv);
+
+        if (successful) {
+            return true;
+        } else {
+            throw new Error('execCommand не сработал');
+        }
+    } catch (err) {
+        const dataURL = canvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = 'datamatrix_with_borders.png';
+        link.href = dataURL;
+        link.click();
+
+        alert('Изображение не удалось скопировать в буфер обмена. Оно было сохранено как файл. Вы можете вручную вставить его из папки загрузок.');
+        return false;
+    }
+}
 
     async function loadShortMarkCode(markCode, shortMarkCodeElement) {
         const currentLegalPersonId = legalPersonId || GM_getValue('legalPersonId');
