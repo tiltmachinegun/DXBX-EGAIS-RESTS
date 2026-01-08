@@ -249,6 +249,10 @@
             flex-wrap: wrap;
         }
 
+        .egais-modal.active {
+            display: flex;
+        }
+
         .short-mark-code {
             font-size: 12px;
             color: #666;
