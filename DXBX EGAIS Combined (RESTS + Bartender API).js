@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         DXBX EGAIS Combined (RESTS + Bartender API)
+// @name         DXBX EGAIS Combined (RESTS + Bartender API) t.me/tiltmachinegun
 // @namespace    http://tampermonkey.net/
 // @version      7.5
 // @description  Объединённый скрипт: остатки ЕГАИС + API бармена (авторизация, добавление/удаление бутылок в ТЗ)
