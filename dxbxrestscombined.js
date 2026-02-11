@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         DXBX EGAIS Combined (RESTS + Bartender API) Обратная связь: t.me/tiltmachinegun
 // @namespace    http://tampermonkey.net/
-// @version      7.6
-// @description  Объединённый скрипт: остатки ЕГАИС + API бармена (авторизация, добавление/удаление бутылок в ТЗ)
+// @version      8.4
+// @description  Объединённый скрипт: остатки ЕГАИС + API бармена (авторизация, добавление/удаление бутылок в ТЗ, поиск накладных)
 // @author       t.me/tiltmachinegun
 // @downloadUrl  https://raw.githubusercontent.com/tiltmachinegun/DXBX-EGAIS-RESTS/refs/heads/main/dxbxrestscombined.js
 // @updateUrl    https://raw.githubusercontent.com/tiltmachinegun/DXBX-EGAIS-RESTS/refs/heads/main/dxbxrestscombined.js
@@ -21,980 +21,331 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js
 // @connect      dxbx.ru
 // ==/UserScript==
-
 (function() {
     'use strict';
 
     GM_addStyle(`
-        :root {
-            --egais-primary: #1890ff;
-            --egais-primary-hover: #40a9ff;
-            --egais-success: #52c41a;
-            --egais-success-hover: #389e0d;
-            --egais-neutral: #6c757d;
-            --egais-neutral-hover: #5a6268;
-            --egais-accent: #722ed1;
-            --egais-accent-hover: #9254de;
-            --egais-warning: #fa8c16;
-            --egais-warning-hover: #ffa940;
-            --egais-danger: #f5222d;
-            --egais-danger-hover: #ff4d4f;
-            --egais-info: #13c2c2;
-            --egais-text-on-dark: #ffffff;
-            --egais-radius: 4px;
-            --egais-font-size: 12px;
-            --egais-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-        }
-
-        .egais-modal,
-        .nomenclature-modal,
-        .orders-modal {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 95%;
-            max-width: 1800px;
-            max-height: 90vh;
-            background: white;
-            border-radius: 8px;
-            box-shadow: var(--egais-shadow);
-            z-index: 10000;
-            display: none;
-            flex-direction: column;
-        }
-
-        .orders-modal {
-            max-width: 1400px;
-        }
-
-        .egais-btn,
-        .nomenclature-button,
-        .manual-search-button,
-        .pagination-button,
-        .filter-button,
-        .batch-action {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 10px;
-            font-size: var(--egais-font-size);
-            border: none;
-            border-radius: var(--egais-radius);
-            cursor: pointer;
-            transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
-            line-height: 1.2;
-        }
-
-        .egais-btn:disabled,
-        .pagination-button:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-            opacity: 0.8;
-        }
-
-        .egais-btn--primary,
-        .manual-search-button,
-        .pagination-button,
-        .filter-apply {
-            background-color: var(--egais-primary);
-            color: var(--egais-text-on-dark);
-        }
-
-        .egais-btn--primary:hover,
-        .manual-search-button:hover,
-        .pagination-button:not(:disabled):hover,
-        .filter-apply:hover {
-            background-color: var(--egais-primary-hover);
-        }
-
-        .egais-btn--success,
-        .nomenclature-button,
-        .filter-export {
-            background-color: var(--egais-success);
-            color: var(--egais-text-on-dark);
-        }
-
-        .egais-btn--success:hover,
-        .nomenclature-button:hover,
-        .filter-export:hover {
-            background-color: var(--egais-success-hover);
-        }
-
-        .egais-btn--muted,
-        .filter-reset {
-            background-color: var(--egais-neutral);
-            color: var(--egais-text-on-dark);
-        }
-
-        .egais-btn--muted:hover,
-        .filter-reset:hover {
-            background-color: var(--egais-neutral-hover);
-        }
-
-        .egais-btn--accent,
-        .batch-action {
-            background-color: var(--egais-accent);
-            color: var(--egais-text-on-dark);
-        }
-
-        .egais-btn--accent:hover,
-        .batch-action:hover {
-            background-color: var(--egais-accent-hover);
-        }
-
-        .egais-btn--warning {
-            background-color: var(--egais-warning);
-            color: var(--egais-text-on-dark);
-        }
-
-        .egais-btn--warning:hover {
-            background-color: var(--egais-warning-hover);
-        }
-
-        .egais-btn--danger {
-            background-color: var(--egais-danger);
-            color: var(--egais-text-on-dark);
-        }
-
-        .egais-btn--danger:hover {
-            background-color: var(--egais-danger-hover);
-        }
-
-        .egais-btn--info {
-            background-color: var(--egais-info);
-            color: var(--egais-text-on-dark);
-        }
-
-        .egais-btn--info:hover {
-            background-color: var(--egais-primary-hover);
-        }
-
-        .egais-flex-row {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-
-        .egais-center { justify-content: center; }
-
-        .egais-ml-8 { margin-left: 8px; }
-        .egais-ml-10 { margin-left: 10px; }
-        .egais-mb-16 { margin-bottom: 16px; }
-
-        .egais-badge-muted {
-            display: inline-block;
-            padding: 2px 6px;
-            background: #e6f7ff;
-            border: 1px solid #91d5ff;
-            border-radius: 3px;
-            font-size: 11px;
-            color: #0050b3;
-        }
-
-        .text-success { color: #006400; }
-        .text-danger { color: #8b0000; }
-        .text-error { color: #ff0000; }
-
-        .tz-status-badge {
-            font-size: 12px;
-            padding: 2px 6px;
-            border-radius: 3px;
-            display: inline-block;
-            background: #f0f0f0;
-            color: #555;
-        }
-
-        .tz-status-badge.tz-yes { background-color: #ccffcc; color: #006400; }
-        .tz-status-badge.tz-no { background-color: #ffcccc; color: #8b0000; }
-        .tz-status-badge.tz-loading { background-color: #f0f0f0; color: #666; }
-
-        .datamatrix-modal {
-            padding: 20px;
-            min-width: 320px;
-            max-width: 480px;
-            text-align: center;
-        }
-
-        .datamatrix-code {
-            font-family: monospace;
-            font-size: 12px;
-            margin: 10px 0;
-            word-break: break-all;
-            padding: 8px;
-            background: #f5f5f5;
-            border-radius: 4px;
-        }
-
-        .datamatrix-actions { justify-content: center; margin-top: 15px; }
-
-        .selectable-row { cursor: pointer; }
-        .selected-row { background: #e6f7ff; }
-
-        .orders-buttons-container {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-left: 8px;
-            margin-bottom: 16px;
-            flex-wrap: wrap;
-        }
-
-        .egais-mark-actions {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-left: 10px;
-            flex-wrap: wrap;
-        }
-
-        .egais-modal.active {
-            display: flex;
-        }
-
-        .short-mark-code {
-            font-size: 12px;
-            color: #666;
-            margin-right: 5px;
-        }
-
-        .nomenclature-modal.active {
-            display: flex;
-        }
-
-        .modal-header {
-            padding: 16px 24px;
-            border-bottom: 1px solid #f0f0f0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #fafafa;
-            border-radius: 8px 8px 0 0;
-        }
-
-        .modal-title {
-            margin: 0;
-            font-size: 16px;
-            font-weight: 600;
-        }
-
-        .modal-subtitle {
-            margin: 0;
-            font-size: 14px;
-            color: #666;
-            font-weight: normal;
-        }
-
-        .modal-title-container {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-
-        .generate-datamatrix {
-            margin-left: 5px;
-            padding: 2px 5px;
-            font-size: 10px;
-            background: #28a745;
-            color: white;
-            border: none;
-            border-radius: 2px;
-            cursor: pointer;
-        }
-
-        .generate-datamatrix:hover {
-            background: #218838;
-        }
-
-        .modal-close {
-            background: none;
-            border: none;
-            font-size: 18px;
-            cursor: pointer;
-            color: #999;
-        }
-
-        .modal-close:hover {
-            color: #333;
-        }
-
-        .modal-content {
-            padding: 24px;
-            overflow-y: auto;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .modal-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-
-        .modal-table th,
-        .modal-table td {
-            padding: 12px 8px;
-            text-align: left;
-            border-bottom: 1px solid #f0f0f0;
-        }
-
-        .modal-table th {
-            background: #fafafa;
-            font-weight: 600;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-
-        .modal-table tr:hover {
-            background: #f5f5f5;
-        }
-
-        .modal-link {
-            color: #1890ff;
-            text-decoration: none;
-            cursor: pointer;
-        }
-
-        .modal-link:hover {
-            text-decoration: underline;
-        }
-
-        .modal-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.45);
-            z-index: 9999;
-            display: none;
-        }
-
-        .modal-overlay.active {
-            display: block;
-        }
-
-        .loading-spinner {
-            text-align: center;
-            padding: 40px;
-            color: #999;
-        }
-
-        .nomenclature-button {
-            margin-left: 10px;
-            background-color: var(--egais-success);
-            color: var(--egais-text-on-dark);
-        }
-
-        .nomenclature-button:hover {
-            background-color: var(--egais-success-hover);
-        }
-
-        .error-message {
-            color: #ff4d4f;
-            text-align: center;
-            padding: 20px;
-        }
-
-        .volume-loading {
-            color: #999;
-            font-style: italic;
-        }
-
-        .mark-info-cell {
-            max-width: 300px;
-            max-height: 60px;
-            overflow: hidden;
-            word-break: break-all;
-            cursor: pointer;
-            position: relative;
-            border: 1px solid #f0f0f0;
-            border-radius: 4px;
-            padding: 8px;
-            background-color: #fafafa;
-            transition: max-height 0.3s ease;
-        }
-
-        .mark-info-cell.expanded {
-            max-height: none;
-            overflow-y: auto;
-        }
-
-        .mark-info-cell:hover {
-            border-color: #1890ff;
-        }
-
-        .mark-info-content {
-            max-height: 40px;
-            overflow: hidden;
-        }
-
-        .mark-info-cell.expanded .mark-info-content {
-            max-height: none;
-        }
-
-        .manual-search-container {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-left: 8px;
-            margin-bottom: 16px;
-        }
-
-        .manual-search-input {
-            padding: 4px 8px;
-            border: 1px solid #d9d9d9;
-            border-radius: 1px;
-            font-size: 10px;
-            width: 250px;
-        }
-
-        .manual-search-button {
-            background-color: var(--egais-primary);
-            color: var(--egais-text-on-dark);
-        }
-
-        .manual-search-button:hover {
-            background-color: var(--egais-primary-hover);
-        }
-
-        .expand-toggle {
-            display: block;
-            text-align: center;
-            margin-top: 5px;
-            font-size: 12px;
-            color: #1890ff;
-            cursor: pointer;
-        }
-
-        .expand-toggle:hover {
-            text-decoration: underline;
-        }
-
-        .copy-mark {
-            margin-left: 5px;
-            padding: 2px 5px;
-            font-size: 10px;
-            background: #f0f0f0;
-            border: none;
-            border-radius: 2px;
-            cursor: pointer;
-        }
-
-        .copy-mark:hover {
-            background: #e0e0e0;
-        }
-
-        .tz-status-modal {
-            font-size: 12px;
-            padding: 2px 6px;
-            border-radius: 3px;
-            display: inline-block;
-        }
-
-        .tz-status-yes {
-            background-color: #ccffcc;
-            color: #006400;
-        }
-
-        .tz-status-no {
-            background-color: #ffcccc;
-            color: #8b0000;
-        }
-
-        .tz-status-loading {
-            background-color: #f0f0f0;
-            color: #666;
-        }
-
-        .pagination-controls {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 10px;
-            margin-top: 20px;
-            padding: 10px;
-            border-top: 1px solid #f0f0f0;
-        }
-
-        .pagination-button {
-            background-color: var(--egais-primary);
-            color: var(--egais-text-on-dark);
-        }
-
-        .pagination-info {
-            font-size: 12px;
-            color: #666;
-        }
-
-        .results-count {
-            margin: 10px 0;
-            font-size: 14px;
-            color: #666;
-            text-align: center;
-        }
-
-        .filters-container {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 15px;
-            border: 1px solid #e9ecef;
-        }
-
-        .filters-header {
-            display: flex;
-            justify-content: between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .filters-title {
-            font-weight: 600;
-            color: #495057;
-            margin: 0;
-        }
-
-        .filters-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 12px;
-            margin-bottom: 10px;
-        }
-
-        .filter-group {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        .filter-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: #495057;
-        }
-
-        .filter-input, .filter-select {
-            padding: 6px 8px;
-            border: 1px solid #ced4da;
-            border-radius: 4px;
-            font-size: 12px;
-        }
-
-        .filter-input:focus, .filter-select:focus {
-            outline: none;
-            border-color: #1890ff;
-            box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
-        }
-
-        .filter-actions {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-            flex-wrap: wrap;
-        }
-
-        .filter-button {
-            padding: 6px 12px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.2s;
-        }
-
-        .filter-apply {
-            background-color: var(--egais-primary);
-            color: var(--egais-text-on-dark);
-        }
-
-        .filter-apply:hover {
-            background-color: var(--egais-primary-hover);
-        }
-
-        .filter-reset {
-            background-color: var(--egais-neutral);
-            color: var(--egais-text-on-dark);
-        }
-
-        .filter-reset:hover {
-            background-color: var(--egais-neutral-hover);
-        }
-
-        .filter-export {
-            background-color: var(--egais-success);
-            color: var(--egais-text-on-dark);
-        }
-
-        .filter-export:hover {
-            background-color: var(--egais-success-hover);
-        }
-
-        .stats-container {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-        }
-
-        .stat-item {
-            background: white;
-            padding: 8px 12px;
-            border-radius: 4px;
-            border: 1px solid #e9ecef;
-            font-size: 12px;
-        }
-
-        .stat-value {
-            font-weight: 600;
-            color: #1890ff;
-        }
-
-        .volume-badge {
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-
-        .volume-low {
-            background-color: #fff2f0;
-            color: #cf1322;
-            border: 1px solid #ffccc7;
-        }
-
-        .volume-medium {
-            background-color: #fff7e6;
-            color: #d46b08;
-            border: 1px solid #ffd591;
-        }
-
-        .volume-high {
-            background-color: #f6ffed;
-            color: #389e0d;
-            border: 1px solid #b7eb8f;
-        }
-
-        .sortable-header {
-            cursor: pointer;
-            user-select: none;
-            position: relative;
-            padding-right: 15px !important;
-        }
-
-        .sortable-header:hover {
-            background-color: #e6f7ff;
-        }
-
-        .sort-icon {
-            position: absolute;
-            right: 5px;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: 12px;
-        }
-
-        .table-container {
-            overflow-x: auto;
-            flex: 1;
-        }
-
-        .highlight-row {
-            animation: highlight-fade 2s ease-in-out;
-        }
-
-        @keyframes highlight-fade {
-            0% { background-color: #fff566; }
-            100% { background-color: transparent; }
-        }
-
-        .quick-filters {
-            display: flex;
-            gap: 5px;
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-        }
-
-        .quick-filter {
-            padding: 4px 8px;
-            background: #e6f7ff;
-            border: 1px solid #91d5ff;
-            border-radius: 3px;
-            font-size: 11px;
-            cursor: pointer;
-            color: #0050b3;
-        }
-
-        .quick-filter:hover {
-            background: #bae7ff;
-        }
-
-        .quick-filter.active {
-            background: #1890ff;
-            color: white;
-            border-color: #1890ff;
-        }
-
-        .batch-actions {
-            display: flex;
-            gap: 10px;
-            margin: 10px 0;
-            flex-wrap: wrap;
-        }
-
-        .batch-action {
-            background: var(--egais-accent);
-            color: var(--egais-text-on-dark);
-        }
-
-        .batch-action:hover {
-            background: var(--egais-accent-hover);
-        }
-
-        .selected-count {
-            background: #13c2c2;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .orders-modal.active {
-            display: flex;
-        }
-
-        .order-item {
-            border: 1px solid #e8e8e8;
-            border-radius: 6px;
-            margin-bottom: 12px;
-            padding: 12px;
-            background: #fafafa;
-        }
-
-        .order-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #e8e8e8;
-        }
-
-        .order-title {
-            font-weight: 600;
-            color: #1890ff;
-            cursor: pointer;
-        }
-
-        .order-title:hover {
-            text-decoration: underline;
-        }
-
-        .order-status {
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-
-        .status-created {
-            background: #e6f7ff;
-            color: #1890ff;
-        }
-
-        .order-details {
-            font-size: 12px;
-            color: #666;
-        }
-
-        .order-bottle {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 6px 0;
-            border-bottom: 1px solid #f0f0f0;
-        }
-
-        .order-bottle:last-child {
-            border-bottom: none;
-        }
-
-        .bottle-code {
-            font-family: monospace;
-            font-size: 11px;
-        }
-
-        .bottle-volume {
-            font-weight: 600;
-            color: #52c41a;
-        }
-
-        .bottle-match {
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 10px;
-            font-weight: 600;
-        }
-
-        .match-found {
-            background: #f6ffed;
-            color: #52c41a;
-        }
-
-        .match-not-found {
-            background: #fff2f0;
-            color: #ff4d4f;
-        }
-
-        .check-orders-button {
-            margin-left: 10px;
-        }
-
-        .orders-summary {
-            background: #f0f8ff;
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            border: 1px solid #d6e4ff;
-        }
-
-        .summary-stats {
-            display: flex;
-            gap: 15px;
-            flex-wrap: wrap;
-        }
-
-        .summary-stat {
-            font-size: 12px;
-        }
-
-        .summary-value {
-            font-weight: 600;
-            color: #1890ff;
-        }
-
-        .alko-code-filter {
-            background: #f0f8ff;
-            border-left: 3px solid #1890ff;
-        }
-
-                .add-to-tz-modal-button,
-                .remove-from-tz-modal-button {
-                    margin-left: 5px;
-                    padding: 4px 8px;
-                    font-size: 11px;
-                    border-radius: 3px;
-                    transition: background-color 0.2s ease, opacity 0.2s ease;
-                }
-
-                .add-to-tz-modal-button.loading,
-                .remove-from-tz-modal-button.loading {
-                    background-color: var(--egais-warning);
-                }
-
-                .add-to-tz-modal-button.success,
-                .remove-from-tz-modal-button.success {
-                    background-color: var(--egais-success);
-                }
-
-                .add-to-tz-modal-button.error,
-                .remove-from-tz-modal-button.error {
-                    background-color: var(--egais-danger);
-                }
-
-                .tz-action-buttons {
-                    display: flex;
-                    gap: 5px;
-                    flex-wrap: wrap;
-                }
-
-                .bottle-actions-cell {
-                    min-width: 150px;
-                }
-
-        .alko-code-badge {
-            display: inline-block;
-            padding: 2px 6px;
-            background: #e6f7ff;
-            border: 1px solid #91d5ff;
-            border-radius: 3px;
-            font-size: 11px;
-            font-family: monospace;
-            color: #0050b3;
-            margin-left: 5px;
-        }
-
-        .alko-code-cell {
-            font-family: monospace;
-            font-size: 11px;
-            color: #666;
-        }
-
-        /* Auth UI Styles */
-        .auth-container{position:fixed;top:10px;right:10px;background:rgba(255,255,255,.1);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:4px 8px;font-size:11px;z-index:9998;transition:.3s;max-width:200px;opacity:.7}
-        .auth-container:hover{background:rgba(255,255,255,.9);border-color:#1890ff;opacity:1;box-shadow:0 4px 12px rgba(0,0,0,.15)}
-        .auth-status{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:3px;font-weight:500}
-        .status-authorized{background:rgba(82,196,26,.2);color:#389e0d;border:1px solid rgba(82,196,26,.3)}
-        .status-unauthorized{background:rgba(245,34,45,.2);color:#cf1322;border:1px solid rgba(245,34,45,.3)}
-        .auth-buttons{display:inline-flex;gap:4px}
-        .auth-button{padding:2px 6px;background:rgba(24,144,255,.1);color:#1890ff;border:1px solid rgba(24,144,255,.3);border-radius:3px;cursor:pointer;font-size:10px;transition:.2s}
-        .auth-button.warning{background:rgba(255,171,0,.1);color:#ffab00;border:1px solid rgba(255,171,0,.3)}
-        .auth-button:hover{background:#1890ff;color:#fff;border-color:#1890ff}
-        .auth-button.warning:hover{background:#ffab00;color:#fff}
-        .auth-toggle{position:absolute;top:-8px;right:-8px;width:16px;height:16px;background:#ff4d4f;color:#fff;border:none;border-radius:50%;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:.3s}
-        .auth-container:hover .auth-toggle{opacity:1}
-        .auth-container.collapsed{width:auto;padding:2px 6px}
-        .auth-container.collapsed .auth-status,.auth-container.collapsed .auth-buttons{display:none}
-        .auth-container.collapsed::after{content:"🔐";font-size:12px;opacity:.7}
-        
-        /* TZ Inline Button */
-        .tz-inline-btn{padding:2px 8px;font-size:10px;min-width:32px}
-        .tz-inline-btn:disabled{opacity:.6;cursor:not-allowed}
-        .tz-context-menu{position:absolute;background:#fff;border:1px solid #d9d9d9;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:10000;padding:4px 0}
-        .tz-menu-item{padding:6px 12px;cursor:pointer;font-size:12px;white-space:nowrap}
-        .tz-menu-item:hover{background:#f5f5f5}
-        
-        /* Invoice TZ Interface */
-        .invoice-tz-container{margin:15px 0;padding:15px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px}
-        .invoice-tz-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-        .invoice-tz-title{margin:0;font-size:14px;color:#1890ff}
-        .invoice-bottle-list{max-height:400px;overflow-y:auto;border:1px solid #e9ecef;border-radius:6px}
-        .invoice-bottle-row{display:grid;grid-template-columns:44px minmax(200px,280px) minmax(320px,1fr) 80px 90px 80px;gap:8px;align-items:start;padding:8px 10px;font-size:11px}
-        .invoice-bottle-header{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e9ecef;font-weight:600;z-index:1}
-        .invoice-bottle-item{border-bottom:1px solid #f0f0f0}
-        .invoice-bottle-item:last-child{border-bottom:none}
-        .invoice-col-num{text-align:right;color:#666}
-        .invoice-col-nomen{color:#333;line-height:1.3;word-break:break-word}
-        .invoice-col-mark{font-family:monospace;font-size:11px;word-break:break-all;color:#333}
-        .invoice-col-volume{color:#52c41a;font-weight:600;text-align:right}
-        .invoice-col-status{font-size:11px;color:#999;text-align:center}
-        .invoice-col-actions{text-align:center}
-        
-        .auth-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:10001;backdrop-filter:blur(5px)}
-        .auth-modal{background:#fff;border-radius:12px;padding:30px;width:90%;max-width:400px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
-        .auth-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:15px;border-bottom:1px solid #e8e8e8}
-        .auth-modal-title{font-size:20px;font-weight:600;color:#1890ff;margin:0}
-        .auth-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:#999;width:30px;height:30px;border-radius:50%}
-        .auth-modal-close:hover{background:#f5f5f5;color:#333}
-        .auth-form-group{margin-bottom:20px}
-        .auth-form-label{display:block;margin-bottom:6px;font-weight:500;color:#333}
-        .auth-form-input{width:100%;padding:10px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;box-sizing:border-box}
-        .auth-form-input:focus{outline:none;border-color:#1890ff;box-shadow:0 0 0 2px rgba(24,144,255,.2)}
-        .auth-form-actions{display:flex;gap:10px;margin-top:25px}
-        .auth-form-submit{flex:1;padding:12px;background:#1890ff;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer}
-        .auth-form-submit:hover:not(:disabled){background:#40a9ff}
-        .auth-form-submit:disabled{background:#ccc;cursor:not-allowed}
-        .auth-form-cancel{padding:12px 20px;background:#f5f5f5;color:#666;border:none;border-radius:6px;cursor:pointer}
-        .auth-form-cancel:hover{background:#e8e8e8}
-        .auth-form-error{color:#ff4d4f;font-size:12px;margin-top:5px;display:none}
-        .auth-form-error.show{display:block}
-        .auth-form-remember{display:flex;align-items:center;gap:8px;margin-top:10px}
-        .auth-form-remember label{font-size:13px;color:#666;cursor:pointer}
-        .auth-modal-footer{margin-top:20px;padding-top:15px;border-top:1px solid #e8e8e8;font-size:12px;color:#999;text-align:center}
+:root{--egais-primary:#1890ff;--egais-primary-hover:#40a9ff;--egais-primary-light:rgba(24,144,255,0.2);--egais-success:#52c41a;--egais-success-hover:#389e0d;--egais-neutral:#6c757d;--egais-neutral-hover:#5a6268;--egais-accent:#722ed1;--egais-accent-hover:#9254de;--egais-warning:#fa8c16;--egais-warning-hover:#ffa940;--egais-danger:#f5222d;--egais-danger-hover:#ff4d4f;--egais-info:#13c2c2;--egais-text-on-dark:#ffffff;--egais-radius:4px;--egais-font-size:12px;--egais-shadow:0 4px 20px rgba(0,0,0,0.15)}
+html[data-theme="PINK"]{--egais-primary:#eb2f96;--egais-primary-hover:#f759ab;--egais-primary-light:rgba(235,47,150,0.2)}
+.egais-modal,.nomenclature-modal,.orders-modal{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:95%;max-width:1800px;max-height:90vh;background:white;border-radius:8px;box-shadow:var(--egais-shadow);z-index:10000;display:none;flex-direction:column}
+.orders-modal{max-width:1400px}
+.egais-btn,.nomenclature-button,.manual-search-button,.pagination-button,.filter-button,.batch-action{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;font-size:var(--egais-font-size);border:none;border-radius:var(--egais-radius);cursor:pointer;transition:background-color 0.2s ease,color 0.2s ease,transform 0.1s ease;line-height:1.2}
+.egais-btn:disabled,.pagination-button:disabled{background-color:#ccc;cursor:not-allowed;opacity:0.8}
+.egais-btn--primary,.manual-search-button,.pagination-button,.filter-apply{background-color:var(--egais-primary);color:var(--egais-text-on-dark)}
+.egais-btn--primary:hover,.manual-search-button:hover,.pagination-button:not(:disabled):hover,.filter-apply:hover{background-color:var(--egais-primary-hover)}
+.egais-btn--success,.nomenclature-button,.filter-export{background-color:var(--egais-success);color:var(--egais-text-on-dark)}
+.egais-btn--success:hover,.nomenclature-button:hover,.filter-export:hover{background-color:var(--egais-success-hover)}
+.egais-btn--muted,.filter-reset{background-color:var(--egais-neutral);color:var(--egais-text-on-dark)}
+.egais-btn--muted:hover,.filter-reset:hover{background-color:var(--egais-neutral-hover)}
+.egais-btn--accent,.batch-action{background-color:var(--egais-accent);color:var(--egais-text-on-dark)}
+.egais-btn--accent:hover,.batch-action:hover{background-color:var(--egais-accent-hover)}
+.egais-btn--warning{background-color:var(--egais-warning);color:var(--egais-text-on-dark)}
+.egais-btn--warning:hover{background-color:var(--egais-warning-hover)}
+.egais-btn--danger{background-color:var(--egais-danger);color:var(--egais-text-on-dark)}
+.egais-btn--danger:hover{background-color:var(--egais-danger-hover)}
+.egais-btn--info{background-color:var(--egais-info);color:var(--egais-text-on-dark)}
+.egais-btn--info:hover{background-color:var(--egais-primary-hover)}
+.egais-flex-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.egais-center{justify-content:center}
+.egais-ml-8{margin-left:8px}
+.egais-ml-10{margin-left:10px}
+.egais-mb-16{margin-bottom:16px}
+.egais-badge-muted{display:inline-block;padding:2px 6px;background:#e6f7ff;border:1px solid #91d5ff;border-radius:3px;font-size:11px;color:#0050b3}
+.text-success{color:#006400}
+.text-danger{color:#8b0000}
+.text-error{color:#ff0000}
+.tz-status-badge{font-size:12px;padding:2px 6px;border-radius:3px;display:inline-block;background:#f0f0f0;color:#555}
+.tz-status-badge.tz-yes{background-color:#ccffcc;color:#006400}
+.tz-status-badge.tz-no{background-color:#ffcccc;color:#8b0000}
+.tz-status-badge.tz-loading{background-color:#f0f0f0;color:#666}
+.datamatrix-modal{padding:20px;min-width:320px;max-width:480px;text-align:center}
+.datamatrix-code{font-family:monospace;font-size:12px;margin:10px 0;word-break:break-all;padding:8px;background:#f5f5f5;border-radius:4px}
+.datamatrix-actions{justify-content:center;margin-top:15px}
+.selectable-row{cursor:pointer}
+.selected-row{background:#e6f7ff}
+.orders-buttons-container{display:flex;align-items:center;gap:8px;margin-left:8px;margin-bottom:16px;flex-wrap:wrap}
+.egais-mark-actions{display:flex;align-items:center;gap:8px;margin-left:10px;flex-wrap:wrap}
+.egais-modal.active{display:flex}
+.short-mark-code{font-size:12px;color:#666;margin-right:5px}
+.nomenclature-modal.active{display:flex}
+.modal-header{padding:16px 24px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;background:#fafafa;border-radius:8px 8px 0 0}
+.modal-title{margin:0;font-size:16px;font-weight:600}
+.modal-subtitle{margin:0;font-size:14px;color:#666;font-weight:normal}
+.modal-title-container{display:flex;flex-direction:column;gap:4px}
+.generate-datamatrix{margin-left:5px;padding:2px 5px;font-size:10px;background:#28a745;color:white;border:none;border-radius:2px;cursor:pointer}
+.generate-datamatrix:hover{background:#218838}
+.modal-close{background:none;border:none;font-size:18px;cursor:pointer;color:#999}
+.modal-close:hover{color:#333}
+.modal-content{padding:24px;overflow-y:auto;flex:1;display:flex;flex-direction:column}
+.modal-table{width:100%;border-collapse:collapse;margin-top:10px}
+.modal-table th,.modal-table td{padding:12px 8px;text-align:left;border-bottom:1px solid #f0f0f0}
+.modal-table th{background:#fafafa;font-weight:600;position:sticky;top:0;z-index:10}
+.modal-table tr:hover{background:#f5f5f5}
+.modal-link{color:#1890ff;text-decoration:none;cursor:pointer}
+.modal-link:hover{text-decoration:underline}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.45);z-index:9999;display:none}
+.modal-overlay.active{display:block}
+.loading-spinner{text-align:center;padding:40px;color:#999}
+.nomenclature-button{margin-left:10px;background-color:var(--egais-success);color:var(--egais-text-on-dark)}
+.nomenclature-button:hover{background-color:var(--egais-success-hover)}
+.error-message{color:#ff4d4f;text-align:center;padding:20px}
+.volume-loading{color:#999;font-style:italic}
+.mark-info-cell{max-width:300px;max-height:60px;overflow:hidden;word-break:break-all;cursor:pointer;position:relative;border:1px solid #f0f0f0;border-radius:4px;padding:8px;background-color:#fafafa;transition:max-height 0.3s ease}
+.mark-info-cell.expanded{max-height:none;overflow-y:auto}
+.mark-info-cell:hover{border-color:#1890ff}
+.mark-info-content{max-height:40px;overflow:hidden}
+.mark-info-cell.expanded .mark-info-content{max-height:none}
+.manual-search-container{display:flex;align-items:center;gap:8px;margin-left:8px;margin-bottom:16px}
+.manual-search-input{padding:4px 8px;border:1px solid #d9d9d9;border-radius:1px;font-size:10px;width:250px}
+.manual-search-button{background-color:var(--egais-primary);color:var(--egais-text-on-dark)}
+.manual-search-button:hover{background-color:var(--egais-primary-hover)}
+.egais-mappings-container{margin:12px 0 0;background:#fff;border:1px solid #e9ecef;border-radius:10px;padding:16px;box-shadow:0 2px 10px rgba(0,0,0,0.06)}
+.egais-mappings-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.egais-mappings-title{font-size:14px;font-weight:600;color:#1a1a1a}
+.egais-mappings-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.egais-mappings-toggle{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:#666}
+.egais-mappings-toggle input{width:32px;height:16px;appearance:none;background:#d9d9d9;border-radius:16px;position:relative;outline:none;cursor:pointer}
+.egais-mappings-toggle input:checked{background:#1890ff}
+.egais-mappings-toggle input::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;background:#fff;border-radius:50%;transition:transform 0.2s}
+.egais-mappings-toggle input:checked::after{transform:translateX(16px)}
+.egais-mappings-search{padding:6px 10px;border:1px solid #d9d9d9;border-radius:6px;font-size:12px;min-width:260px}
+.egais-mappings-search:focus{outline:none;border-color:#1890ff;box-shadow:0 0 0 2px rgba(24,144,255,0.2)}
+.egais-mappings-stats{font-size:12px;color:#666;margin-bottom:8px}
+.egais-mappings-table-wrapper{max-height:70vh;overflow:auto;border:1px solid #f0f0f0;border-radius:8px}
+.egais-mappings-table{width:100%;border-collapse:collapse;font-size:12px}
+.egais-mappings-table th,.egais-mappings-table td{padding:10px 8px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+.egais-mappings-table th{position:sticky;top:0;background:#fafafa;font-weight:600;z-index:1}
+.egais-mappings-cell-title{font-weight:600;color:#1a1a1a}
+.egais-mappings-cell-sub{color:#666;margin-top:2px;font-size:11px}
+.egais-mappings-code{font-family:monospace;font-size:11px;color:#0050b3;background:#e6f7ff;border:1px solid #91d5ff;padding:2px 6px;border-radius:4px;display:inline-block}
+.egais-mappings-empty{text-align:center;padding:30px;color:#999}
+.egais-mappings-dropdown{font-size:12px;position:absolute;z-index:10000;background:#fff;border:1px solid #e9ecef;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.12);max-height:280px;overflow:auto;animation:egaisDropdownFadeIn 0.15s ease-out}
+@keyframes egaisDropdownFadeIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.egais-mappings-dropdown-loading{padding:12px;text-align:center;color:#999}
+.egais-mappings-spinner{display:inline-block;width:14px;height:14px;border:2px solid #f3f3f3;border-top:2px solid var(--egais-primary);border-radius:50%;animation:egaisSpinnerRotate 0.8s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes egaisSpinnerRotate{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.egais-mappings-hint-global{position:absolute;background:#fff;border:1px solid #d9d9d9;border-radius:4px;padding:8px 12px;font-size:14px;color:rgba(0,0,0,0.45);box-shadow:0 2px 8px rgba(0,0,0,0.1);z-index:10001;animation:egaisHintFadeIn 0.15s ease-out;white-space:nowrap;display:none}
+.egais-mappings-select{position:relative !important}
+@keyframes egaisHintFadeIn{from{opacity:0;transform:translateY(-2px)}to{opacity:1;transform:translateY(0)}}
+.egais-unmapped-row{background-color:rgba(255,77,79,0.1) !important;transition:background-color 0.2s ease}
+.egais-unmapped-row:hover{background-color:rgba(255,77,79,0.15) !important}
+.egais-mappings-container .ant-table-row{transition:background-color 0.2s ease}
+.egais-mappings-dropdown .ant-select-item{padding:5px 12px;
+cursor:pointer;font-size:14px;line-height:22px;min-height:32px;transition:background-color 0.15s ease}
+.egais-mappings-dropdown .ant-select-item-option-active{background-color:#f5f5f5}
+.egais-mappings-dropdown .ant-select-item-option:hover{background-color:#f5f5f5}
+.egais-mappings-dropdown .ant-select-item-option-content{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.egais-mappings-select.ant-select-focused .ant-select-selector{border-color:var(--egais-primary) !important;box-shadow:0 0 0 2px var(--egais-primary-light) !important;transition:all 0.2s ease}
+.egais-mappings-select .ant-select-selector{transition:all 0.2s ease !important}
+.egais-mappings-select .ant-select-selection-search-input{cursor:text !important}
+.egais-mappings-select .ant-select-selection-placeholder{color:#bfbfbf;pointer-events:none;position:absolute;left:11px;right:11px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.egais-mappings-select.ant-select-focused .ant-select-selection-placeholder{display:none}
+.egais-mappings-actions-cell{white-space:nowrap}
+.egais-mappings-action-btn{border:none;background:#f5f5f5;color:#555;padding:4px 8px;border-radius:6px;font-size:11px;cursor:pointer;margin-right:6px}
+.egais-mappings-action-btn:hover{background:#e6f7ff;color:#1890ff}
+.egais-mappings-action-btn.danger:hover{background:#fff1f0;color:#f5222d}
+.egais-mappings-modal{max-width:520px;width:90%}
+.egais-mappings-modal .modal-content{padding:16px 20px 20px}
+.egais-mappings-modal-search{width:100%;padding:8px 10px;border:1px solid #d9d9d9;border-radius:6px;font-size:12px;margin-bottom:12px}
+.egais-mappings-modal-search:focus{outline:none;border-color:#1890ff;box-shadow:0 0 0 2px rgba(24,144,255,0.2)}
+.egais-mappings-results{max-height:320px;overflow:auto;border:1px solid #f0f0f0;border-radius:8px}
+.egais-mappings-result-item{padding:10px 12px;border-bottom:1px solid #f0f0f0;cursor:pointer}
+.egais-mappings-result-item:last-child{border-bottom:none}
+.egais-mappings-result-item:hover{background:#f6ffed}
+.egais-mappings-result-name{font-size:12px;font-weight:600;color:#1a1a1a}
+.egais-mappings-result-measure{font-size:11px;color:#666;margin-top:2px}
+.expand-toggle{display:block;text-align:center;margin-top:5px;font-size:12px;color:#1890ff;cursor:pointer}
+.expand-toggle:hover{text-decoration:underline}
+.copy-mark{margin-left:5px;padding:2px 5px;font-size:10px;background:#f0f0f0;border:none;border-radius:2px;cursor:pointer}
+.copy-mark:hover{background:#e0e0e0}
+.tz-status-modal{font-size:12px;padding:2px 6px;border-radius:3px;display:inline-block}
+.tz-status-yes{background-color:#ccffcc;color:#006400}
+.tz-status-no{background-color:#ffcccc;color:#8b0000}
+.tz-status-loading{background-color:#f0f0f0;color:#666}
+.pagination-controls{display:flex;justify-content:center;align-items:center;gap:10px;margin-top:20px;padding:10px;border-top:1px solid #f0f0f0}
+.pagination-button{background-color:var(--egais-primary);color:var(--egais-text-on-dark)}
+.pagination-info{font-size:12px;color:#666}
+.results-count{margin:10px 0;font-size:14px;color:#666;text-align:center}
+.filters-container{background:#f8f9fa;padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid #e9ecef}
+.filters-header{display:flex;justify-content:between;align-items:center;margin-bottom:10px}
+.filters-title{font-weight:600;color:#495057;margin:0}
+.filters-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:10px}
+.filter-group{display:flex;flex-direction:column;gap:5px}
+.filter-label{font-size:12px;font-weight:600;color:#495057}
+.filter-input,.filter-select{padding:6px 8px;border:1px solid #ced4da;border-radius:4px;font-size:12px}
+.filter-input:focus,.filter-select:focus{outline:none;border-color:#1890ff;box-shadow:0 0 0 2px rgba(24,144,255,0.2)}
+.filter-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.filter-button{padding:6px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;transition:all 0.2s}
+.filter-apply{background-color:var(--egais-primary);color:var(--egais-text-on-dark)}
+.filter-apply:hover{background-color:var(--egais-primary-hover)}
+.filter-reset{background-color:var(--egais-neutral);color:var(--egais-text-on-dark)}
+.filter-reset:hover{background-color:var(--egais-neutral-hover)}
+.filter-export{background-color:var(--egais-success);color:var(--egais-text-on-dark)}
+.filter-export:hover{background-color:var(--egais-success-hover)}
+.stats-container{display:flex;gap:15px;margin-bottom:10px;flex-wrap:wrap}
+.stat-item{background:white;padding:8px 12px;border-radius:4px;border:1px solid #e9ecef;font-size:12px}
+.stat-value{font-weight:600;color:#1890ff}
+.volume-badge{padding:2px 6px;border-radius:3px;font-size:11px;font-weight:600}
+.volume-low{background-color:#fff2f0;color:#cf1322;border:1px solid #ffccc7}
+.volume-medium{background-color:#fff7e6;color:#d46b08;border:1px solid #ffd591}
+.volume-high{background-color:#f6ffed;color:#389e0d;border:1px solid #b7eb8f}
+.sortable-header{cursor:pointer;user-select:none;position:relative;padding-right:15px !important}
+.sortable-header:hover{background-color:#e6f7ff}
+.sort-icon{position:absolute;right:5px;top:50%;transform:translateY(-50%);font-size:12px}
+.table-container{overflow-x:auto;flex:1}
+.highlight-row{animation:highlight-fade 2s ease-in-out}
+@keyframes highlight-fade{0%{background-color:#fff566}100%{background-color:transparent}}
+.quick-filters{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap}
+.quick-filter{padding:4px 8px;background:#e6f7ff;border:1px solid #91d5ff;border-radius:3px;font-size:11px;cursor:pointer;color:#0050b3}
+.quick-filter:hover{background:#bae7ff}
+.quick-filter.active{background:#1890ff;color:white;border-color:#1890ff}
+.batch-actions{display:flex;gap:10px;margin:10px 0;flex-wrap:wrap}
+.batch-action{background:var(--egais-accent);color:var(--egais-text-on-dark)}
+.batch-action:hover{background:var(--egais-accent-hover)}
+.selected-count{background:#13c2c2;color:white;padding:6px 12px;border-radius:4px;font-size:12px;font-weight:600}
+.orders-modal.active{display:flex}
+.order-item{border:1px solid #e8e8e8;border-radius:6px;margin-bottom:12px;padding:12px;background:#fafafa}
+.order-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #e8e8e8}
+.order-title{font-weight:600;color:#1890ff;cursor:pointer}
+.order-title:hover{text-decoration:underline}
+.order-status{padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.status-created{background:#e6f7ff;color:#1890ff}
+.order-details{font-size:12px;color:#666}
+.order-bottle{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0}
+.order-bottle:last-child{border-bottom:none}
+.bottle-code{font-family:monospace;font-size:11px}
+.bottle-volume{font-weight:600;color:#52c41a}
+.bottle-match{padding:2px 6px;border-radius:3px;font-size:10px;font-weight:600}
+.match-found{background:#f6ffed;color:#52c41a}
+.match-not-found{background:#fff2f0;color:#ff4d4f}
+.check-orders-button{margin-left:10px}
+.orders-summary{background:#f0f8ff;padding:12px;border-radius:6px;margin-bottom:15px;border:1px solid #d6e4ff}
+.summary-stats{display:flex;gap:15px;flex-wrap:wrap}
+.summary-stat{font-size:12px}
+.summary-value{font-weight:600;color:#1890ff}
+.alko-code-filter{background:#f0f8ff;border-left:3px solid #1890ff}
+.add-to-tz-modal-button,.remove-from-tz-modal-button{margin-left:5px;padding:4px 8px;font-size:11px;border-radius:3px;transition:background-color 0.2s ease,opacity 0.2s ease}
+.add-to-tz-modal-button.loading,.remove-from-tz-modal-button.loading{background-color:var(--egais-warning)}
+.add-to-tz-modal-button.success,.remove-from-tz-modal-button.success{background-color:var(--egais-success)}
+.add-to-tz-modal-button.error,.remove-from-tz-modal-button.error{background-color:var(--egais-danger)}
+.tz-action-buttons{display:flex;gap:5px;flex-wrap:wrap}
+.bottle-actions-cell{min-width:150px}
+.alko-code-badge{display:inline-block;padding:2px 6px;background:#e6f7ff;border:1px solid #91d5ff;border-radius:3px;font-size:11px;font-family:monospace;color:#0050b3;margin-left:5px}
+.alko-code-cell{font-family:monospace;font-size:11px;color:#666}
+.invoice-search-button{background-color:var(--egais-warning);color:var(--egais-text-on-dark)}
+.invoice-search-button:hover{background-color:var(--egais-warning-hover)}
+.invoice-result-modal{padding:0;min-width:420px;max-width:500px;border-radius:16px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.invoice-modal-header{background:linear-gradient(135deg,#f8f9fa 0%,#e9ecef 100%);padding:20px;border-bottom:1px solid #e9ecef}
+.invoice-product-row{display:flex;align-items:flex-start;gap:12px}
+.invoice-product-icon{width:48px;height:48px;background:#e8f5e9;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+.invoice-product-info{flex:1}
+.invoice-product-name{font-size:15px;font-weight:600;color:#1a1a1a;line-height:1.3;margin-bottom:8px}
+.invoice-ttn-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.invoice-ttn-text{font-size:13px;color:#666}
+.invoice-egais-badge{display:inline-block;padding:4px 10px;background:#e8f5e9;color:#2e7d32;border-radius:6px;font-size:11px;font-weight:600}
+.invoice-modal-body{padding:16px 20px;background:#fff}
+.invoice-cards-row{display:flex;gap:12px;margin-bottom:16px}
+.invoice-card{flex:1;background:#f8f9fa;border:1px solid #e9ecef;border-radius:12px;padding:12px;position:relative}
+.invoice-card-label{font-size:11px;color:#999;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between}
+.invoice-card-value{font-size:13px;color:#333;font-weight:500;word-break:break-all}
+.invoice-card-copy{background:none;border:none;cursor:pointer;font-size:14px;padding:2px;opacity:0.5;transition:opacity 0.2s}
+.invoice-card-copy:hover{opacity:1}
+.invoice-mark-card{background:#f8f9fa;border:1px solid #e9ecef;border-radius:12px;padding:12px;margin-bottom:16px}
+.invoice-section-title{font-size:14px;font-weight:600;color:#1a1a1a;margin:16px 0 12px 0}
+.invoice-info-list{background:#fff}
+.invoice-info-item{display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid #f0f0f0}
+.invoice-info-item:last-child{border-bottom:none}
+.invoice-info-icon{width:32px;height:32px;background:#f5f5f5;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.invoice-info-content{flex:1}
+.invoice-info-title{font-size:12px;color:#999;margin-bottom:2px}
+.invoice-info-value{font-size:13px;color:#333;font-weight:500}
+.invoice-info-subtitle{font-size:11px;color:#666;margin-top:2px}
+.invoice-history-section{margin-top:16px}
+.invoice-history-item{display:flex;align-items:flex-start;gap:12px;padding:8px 0}
+.invoice-history-icon{width:32px;height:32px;background:#e3f2fd;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+.invoice-history-content{flex:1}
+.invoice-history-title{font-size:13px;color:#333;font-weight:500;display:flex;align-items:center;gap:8px}
+.invoice-history-ttn{font-size:12px;color:#666;font-weight:normal}
+.invoice-history-arrow{margin-left:auto;color:#ccc;font-size:16px}
+.invoice-status-timeline{margin-top:8px;padding-left:4px;border-left:2px solid #e8f5e9}
+.invoice-status-item{padding:6px 0 6px 12px;position:relative}
+.invoice-status-item::before{content:'';position:absolute;left:-5px;top:12px;width:8px;height:8px;background:#4caf50;border-radius:50%}
+.invoice-status-label{display:inline-block;padding:3px 8px;background:#e8f5e9;color:#2e7d32;border-radius:4px;font-size:11px;font-weight:500}
+.invoice-status-date{font-size:11px;color:#999;margin-top:2px}
+.invoice-modal-footer{padding:16px 20px;background:#f8f9fa;border-top:1px solid #e9ecef;display:flex;gap:10px}
+.invoice-btn-primary{flex:1;padding:12px 20px;background:#1890ff;color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;transition:background 0.2s}
+.invoice-btn-primary:hover{background:#40a9ff}
+.invoice-btn-secondary{padding:12px 20px;background:#fff;color:#666;border:1px solid #e9ecef;border-radius:10px;font-size:14px;cursor:pointer;transition:all 0.2s}
+.invoice-btn-secondary:hover{background:#f5f5f5;border-color:#d9d9d9}
+.invoice-link{color:#1890ff;text-decoration:none;font-weight:600}
+.invoice-link:hover{text-decoration:underline}
+.auth-container{position:fixed;top:10px;right:10px;background:rgba(255,255,255,.1);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:4px 8px;font-size:11px;z-index:9998;transition:.3s;max-width:200px;opacity:.7}
+.auth-container:hover{background:rgba(255,255,255,.9);border-color:#1890ff;opacity:1;box-shadow:0 4px 12px rgba(0,0,0,.15)}
+.auth-status{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:3px;font-weight:500}
+.status-authorized{background:rgba(82,196,26,.2);color:#389e0d;border:1px solid rgba(82,196,26,.3)}
+.status-unauthorized{background:rgba(245,34,45,.2);color:#cf1322;border:1px solid rgba(245,34,45,.3)}
+.auth-buttons{display:inline-flex;gap:4px}
+.auth-button{padding:2px 6px;background:rgba(24,144,255,.1);color:#1890ff;border:1px solid rgba(24,144,255,.3);border-radius:3px;cursor:pointer;font-size:10px;transition:.2s}
+.auth-button.warning{background:rgba(255,171,0,.1);color:#ffab00;border:1px solid rgba(255,171,0,.3)}
+.auth-button:hover{background:#1890ff;color:#fff;border-color:#1890ff}
+.auth-button.warning:hover{background:#ffab00;color:#fff}
+.auth-toggle{position:absolute;top:-8px;right:-8px;width:16px;height:16px;background:#ff4d4f;color:#fff;border:none;border-radius:50%;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:.3s}
+.auth-container:hover .auth-toggle{opacity:1}
+.auth-container.collapsed{width:auto;padding:2px 6px}
+.auth-container.collapsed .auth-status,.auth-container.collapsed .auth-buttons{display:none}
+.auth-container.collapsed::after{content:"🔐";font-size:12px;opacity:.7}
+.tz-inline-btn{padding:2px 8px;font-size:10px;min-width:32px}
+.tz-inline-btn:disabled{opacity:.6;cursor:not-allowed}
+.tz-context-menu{position:absolute;background:#fff;border:1px solid #d9d9d9;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,0.15);z-index:10000;padding:4px 0}
+.tz-menu-item{padding:6px 12px;cursor:pointer;font-size:12px;white-space:nowrap}
+.tz-menu-item:hover{background:#f5f5f5}
+.invoice-tz-container{margin:15px 0;padding:15px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px}
+.invoice-tz-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.invoice-tz-title{margin:0;font-size:14px;color:#1890ff}
+.invoice-bottle-list{max-height:400px;overflow-y:auto;border:1px solid #e9ecef;border-radius:6px}
+.invoice-bottle-row{display:grid;grid-template-columns:44px minmax(200px,280px) minmax(320px,1fr) 80px 90px 80px;gap:8px;align-items:start;padding:8px 10px;font-size:11px}
+.invoice-bottle-header{position:sticky;top:0;background:#fafafa;border-bottom:1px solid #e9ecef;font-weight:600;z-index:1}
+.invoice-bottle-item{border-bottom:1px solid #f0f0f0}
+.invoice-bottle-item:last-child{border-bottom:none}
+.invoice-col-num{text-align:right;color:#666}
+.invoice-col-nomen{color:#333;line-height:1.3;word-break:break-word}
+.invoice-col-mark{font-family:monospace;font-size:11px;word-break:break-all;color:#333}
+.invoice-col-volume{color:#52c41a;font-weight:600;text-align:right}
+.invoice-col-status{font-size:11px;color:#999;text-align:center}
+.invoice-col-actions{text-align:center}
+.auth-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:10001;backdrop-filter:blur(5px)}
+.auth-modal{background:#fff;border-radius:12px;padding:30px;width:90%;max-width:400px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+.auth-modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;padding-bottom:15px;border-bottom:1px solid #e8e8e8}
+.auth-modal-title{font-size:20px;font-weight:600;color:#1890ff;margin:0}
+.auth-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:#999;width:30px;height:30px;border-radius:50%}
+.auth-modal-close:hover{background:#f5f5f5;color:#333}
+.auth-form-group{margin-bottom:20px}
+.auth-form-label{display:block;margin-bottom:6px;font-weight:500;color:#333}
+.auth-form-input{width:100%;padding:10px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;box-sizing:border-box}
+.auth-form-input:focus{outline:none;border-color:#1890ff;box-shadow:0 0 0 2px rgba(24,144,255,.2)}
+.auth-form-actions{display:flex;gap:10px;margin-top:25px}
+.auth-form-submit{flex:1;padding:12px;background:#1890ff;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer}
+.auth-form-submit:hover:not(:disabled){background:#40a9ff}
+.auth-form-submit:disabled{background:#ccc;cursor:not-allowed}
+.auth-form-cancel{padding:12px 20px;background:#f5f5f5;color:#666;border:none;border-radius:6px;cursor:pointer}
+.auth-form-cancel:hover{background:#e8e8e8}
+.auth-form-error{color:#ff4d4f;font-size:12px;margin-top:5px;display:none}
+.auth-form-error.show{display:block}
+.auth-form-remember{display:flex;align-items:center;gap:8px;margin-top:10px}
+.auth-form-remember label{font-size:13px;color:#666;cursor:pointer}
+.auth-modal-footer{margin-top:20px;padding-top:15px;border-top:1px solid #e8e8e8;font-size:12px;color:#999;text-align:center}
+.bottle-datamatrix-container{margin:10px auto;padding:12px 15px;background:#f8f9fa;border:1px solid #e9ecef;border-radius:8px;max-width:500px;text-align:center}
+.bottle-datamatrix-header{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px}
+.bottle-datamatrix-title{margin:0;font-size:13px;font-weight:600;color:#1890ff}
+.bottle-datamatrix-content{display:flex;flex-direction:column;align-items:center;gap:10px}
+.bottle-datamatrix-canvas-wrapper{background:#fff;padding:10px;border:1px solid #e9ecef;border-radius:6px;display:inline-block}
+.bottle-datamatrix-mark{font-family:monospace;font-size:10px;word-break:break-all;padding:8px;background:#fff;border:1px solid #e9ecef;border-radius:4px;max-height:60px;overflow-y:auto;text-align:left;width:100%;box-sizing:border-box}
+.bottle-datamatrix-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+.bottle-datamatrix-actions .egais-btn{padding:4px 8px;font-size:11px}
+.bottle-tz-status{margin-top:8px;padding:6px 12px;border-radius:4px;font-size:12px;font-weight:500}
+.bottle-tz-status.tz-yes{background:#e6fffb;color:#006d5b;border:1px solid #87e8de}
+.bottle-tz-status.tz-no{background:#fff2e8;color:#ad4e00;border:1px solid #ffbb96}
+.bottle-tz-status.tz-loading{background:#f0f0f0;color:#666;border:1px solid #d9d9d9}
     `);
 
     let legalPersonId = null;
@@ -1024,32 +375,45 @@
     let ordersLoaded = false;
     let ordersLoading = false;
     let bottleCheckCache = {};
+    let mappingsState = {
+        items: [],
+        filtered: [],
+        paged: [],
+        loading: false,
+        loaded: false,
+        lastLegalPersonId: null,
+        lastQuery: '',
+        tableQuery: '',
+        onlyUnmapped: false,
+        pageSize: 20,
+        currentPage: 1
+    };
 
     let buttonsInitialized = false;
     let initializationInProgress = false;
     let lastInitTime = 0;
     const INIT_COOLDOWN_MS = 1500;
 
-    // ==================== BARTENDER API CONFIG ====================
     const AUTH_CONFIG = {
         API_BASE: 'https://dxbx.ru',
         ENDPOINTS: {
             AUTH: '/apis/auth/authenticate',
             BOTTLES: '/apis/dxbx/egais/bars/bottles',
             ACCESS_PROFILE_SEARCH: '/app/accessprofile/search',
-            ACCESS_PROFILE_SAVE: '/app/save/accessprofile'
+            ACCESS_PROFILE_SAVE: '/app/save/accessprofile',
+            VERIFICATION_MODE_PRODUCTS: '/apis/dxbx/egais/verification-mode/products',
+            INVOICE_SEARCH: '/app/invoice/search'
         },
         HEADERS: {
-            'User-Agent': 'DxBx.React (ios; 1.29.0)',
+            'User-Agent': 'DxBx.React (ios; 1.41.0) (iPhone 15 Pro)',
             'Content-Type': 'application/json',
             'Cookie': '__ddg1_=kgDLpVXQFGV2JKnj97fQ',
-            'ApiVersion': 'v4'
+            'apiversion': 'v4'
         },
         STORAGE: { AUTH: 'bartenderAuth', CREDS: 'bartenderCreds', COLLAPSED: 'authCollapsed' },
         SESSION_TTL: 24 * 60 * 60 * 1000
     };
 
-    // ==================== BARTENDER STATE ====================
     const AuthState = {
         auth: null,
         token: null,
@@ -1108,7 +472,11 @@
         barBottleSearch: 'https://dxbx.ru/app/egaisbarbottle/search',
         ordersSearch: 'https://dxbx.ru/app/egaisorder/search',
         orderPage: 'https://dxbx.ru/app/edit/egaisorder/',
-        orderItemPage: 'https://dxbx.ru/app/edit/egaisorderitem/'
+        orderItemPage: 'https://dxbx.ru/app/edit/egaisorderitem/',
+        mappingsView: 'https://dxbx.ru/api/front/egais/nomenclature/links/view',
+        mappingsCreate: 'https://dxbx.ru/api/front/egais/nomenclature/links/create',
+        mappingsDelete: 'https://dxbx.ru/api/front/egais/nomenclature/links/delete',
+        nomenclatureSearch: 'https://dxbx.ru/api/front/common/nomenclature/matching/buyer/search'
     };
 
     const JSON_HEADERS = {
@@ -1116,7 +484,6 @@
         'Accept': 'application/json'
     };
 
-    // ==================== BARTENDER API FUNCTIONS ====================
     const notify = (message, type = 'info') => {
         const colors = { success: '#52c41a', error: '#f5222d', warning: '#faad14', info: '#1890ff' };
         const el = document.createElement('div');
@@ -1129,8 +496,11 @@
     const authRequest = (opts) => new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
             ...opts,
-            onload: r => r.status >= 200 && r.status < 300 ? resolve(r) : reject(new Error(`HTTP ${r.status}`)),
-            onerror: reject,
+            onload: r => {
+                if (r.status >= 200 && r.status < 300) resolve(r);
+                else { const e = new Error(`HTTP ${r.status}`); e.status = r.status; e.responseText = r.responseText; reject(e); }
+            },
+            onerror: () => reject(new Error('Network error')),
             ontimeout: () => reject(new Error('Timeout'))
         });
     });
@@ -1149,25 +519,13 @@
         },
 
         async addBottle(markInfo, volume, token = AuthState.token) {
-            console.log('[EGAIS] BartenderAPI.addBottle called:', {
-                markLength: markInfo?.length,
-                volume,
-                hasToken: !!token,
-                tokenPreview: token ? token.substring(0, 20) + '...' : null,
-                legalPersonId,
-                tokensKeys: Object.keys(AuthState.tokens)
-            });
             if (!token) throw new Error('Нет токена бармена. Проверьте авторизацию и доступ к ЮЛ ' + legalPersonId);
-            const url = AUTH_CONFIG.API_BASE + AUTH_CONFIG.ENDPOINTS.BOTTLES;
-            console.log('[EGAIS] BartenderAPI.addBottle URL:', url);
             const r = await authRequest({
                 method: 'POST',
-                url: url,
+                url: AUTH_CONFIG.API_BASE + AUTH_CONFIG.ENDPOINTS.BOTTLES,
                 headers: { ...AUTH_CONFIG.HEADERS, token },
                 data: JSON.stringify({ markInfo, actualVolume: parseInt(volume) })
             });
-            console.log('[EGAIS] BartenderAPI.addBottle response status:', r.status);
-            // Обновляем кэш
             const key = `${legalPersonId}_${markInfo}`;
             bottleCache[key] = true;
             GM_setValue('bottleCache', bottleCache);
@@ -1183,12 +541,38 @@
                 headers: { ...AUTH_CONFIG.HEADERS, token },
                 data: JSON.stringify({ markInfo })
             });
-            // Обновляем кэш
             const key = `${legalPersonId}_${markInfo}`;
             bottleCache[key] = false;
             GM_setValue('bottleCache', bottleCache);
             window.dispatchEvent(new CustomEvent('BottleCacheUpdate', { detail: { markInfo, action: 'removed' } }));
             return { success: true, status: r.status };
+        },
+
+        async getBottleInfo(mark, token = AuthState.token) {
+            if (!token) throw new Error('Нет токена бармена. Авторизуйтесь.');
+            const r = await authRequest({
+                method: 'POST',
+                url: AUTH_CONFIG.API_BASE + AUTH_CONFIG.ENDPOINTS.VERIFICATION_MODE_PRODUCTS,
+                headers: { ...AUTH_CONFIG.HEADERS, token, 'Accept': 'application/json', 'Accept-Language': 'ru', 'device-id': '900B7D64-A5FC-4E17-9E67-3F3FD1FB2F52' },
+                data: JSON.stringify({ mark })
+            });
+            return JSON.parse(r.responseText);
+        },
+
+        async searchInvoice(ttnNumber, date) {
+            const col = (d, o=true) => ({data:d, name:'', searchable:true, orderable:o, search:{value:'',regex:false}});
+            const r = await authRequest({
+                method: 'POST',
+                url: AUTH_CONFIG.API_BASE + AUTH_CONFIG.ENDPOINTS.INVOICE_SEARCH,
+                headers: JSON_HEADERS,
+                data: JSON.stringify({
+                    draw:1, order:[{column:1,dir:'desc'}], start:0, length:200,
+                    search:{value:ttnNumber,regex:false}, model:'invoice', searchFormName:'invoice.default',
+                    columns: [col('system_list_icon',false),col('number'),col('date'),col('supplier'),col('buyerLegalPerson'),col('sum'),col('status'),col('acceptStatus'),col('egaisStatus'),col('unloadingDate'),col('acceptDate'),col('exchangeChannel'),col('egaisId'),col('createDate')],
+                    simpleCrit:{crits:[{attr:'date',value:`${date} - ${date}`,oper:'EQUALS',clauses:[]}]}
+                })
+            });
+            return JSON.parse(r.responseText);
         }
     };
 
@@ -1239,7 +623,6 @@
         return btn;
     }
 
-    // ==================== AUTH UI ====================
     const AuthUI = {
         container: null,
 
@@ -1247,11 +630,7 @@
             if (this.container) return;
             this.container = document.createElement('div');
             this.container.className = 'auth-container';
-            this.container.innerHTML = `
-                <div class="auth-status status-unauthorized">Не авторизован</div>
-                <div class="auth-buttons"></div>
-                <button class="auth-toggle" title="Свернуть">−</button>
-            `;
+            this.container.innerHTML = `<div class="auth-status status-unauthorized">Не авторизован</div><div class="auth-buttons"></div><button class="auth-toggle" title="Свернуть">−</button>`;
             const btns = this.container.querySelector('.auth-buttons');
             [
                 { text: '⟳', title: 'Обновить', fn: () => this.check() },
@@ -1283,7 +662,6 @@
             status.textContent = isAuth ? AuthState.auth.user.name : 'Не авторизован';
             AuthState.token = AuthState.getToken();
 
-            // Кнопка добавления доступа - показываем только если есть авторизация, есть legalPersonId и нет токена
             const btns = this.container.querySelector('.auth-buttons');
             const existingAccess = btns?.querySelector('.access-add');
             const hasLegalPerson = legalPersonId && legalPersonId !== 'null' && legalPersonId !== 'undefined';
@@ -1334,34 +712,7 @@
             overlay.className = 'auth-modal-overlay';
             const close = () => overlay.remove();
 
-            overlay.innerHTML = `
-                <div class="auth-modal">
-                    <div class="auth-modal-header">
-                        <h2 class="auth-modal-title">Авторизация DXBX</h2>
-                        <button class="auth-modal-close" type="button">×</button>
-                    </div>
-                    <form id="auth-form">
-                        <div class="auth-form-group">
-                            <label class="auth-form-label">Логин (email)</label>
-                            <input type="text" id="auth-login" class="auth-form-input" placeholder="Email" required>
-                        </div>
-                        <div class="auth-form-group">
-                            <label class="auth-form-label">Пароль</label>
-                            <input type="password" id="auth-password" class="auth-form-input" placeholder="Пароль" required>
-                            <div class="auth-form-error" id="auth-error"></div>
-                        </div>
-                        <div class="auth-form-remember">
-                            <input type="checkbox" id="auth-remember" checked>
-                            <label for="auth-remember">Запомнить</label>
-                        </div>
-                        <div class="auth-form-actions">
-                            <button type="submit" class="auth-form-submit">Войти</button>
-                            <button type="button" class="auth-form-cancel">Отмена</button>
-                        </div>
-                    </form>
-                    <div class="auth-modal-footer">Данные сохраняются локально</div>
-                </div>
-            `;
+            overlay.innerHTML = `<div class="auth-modal"><div class="auth-modal-header"><h2 class="auth-modal-title">Авторизация DXBX</h2><button class="auth-modal-close" type="button">×</button></div><form id="auth-form"><div class="auth-form-group"><label class="auth-form-label">Логин (email)</label><input type="text" id="auth-login" class="auth-form-input" placeholder="Email" required></div><div class="auth-form-group"><label class="auth-form-label">Пароль</label><input type="password" id="auth-password" class="auth-form-input" placeholder="Пароль" required><div class="auth-form-error" id="auth-error"></div></div><div class="auth-form-remember"><input type="checkbox" id="auth-remember" checked><label for="auth-remember">Запомнить</label></div><div class="auth-form-actions"><button type="submit" class="auth-form-submit">Войти</button><button type="button" class="auth-form-cancel">Отмена</button></div></form><div class="auth-modal-footer">Данные сохраняются локально</div></div>`;
 
             document.body.appendChild(overlay);
 
@@ -1377,9 +728,7 @@
             overlay.onclick = e => e.target === overlay && close();
             document.addEventListener('keydown', e => e.key === 'Escape' && close(), { once: true });
 
-            // Use addEventListener to avoid accidental override and add visible logging
             form.addEventListener('submit', async (e) => {
-                console.log('[EGAIS][Auth] submit handler invoked');
                 e.preventDefault();
                 const login = loginInput.value.trim(), pass = passInput.value.trim();
                 if (!login || !pass) { errorDiv.textContent = 'Заполните все поля'; errorDiv.classList.add('show'); return; }
@@ -1388,12 +737,10 @@
                 submitBtn.textContent = 'Вход...';
                 try {
                     const data = await Auth.login(login, pass, rememberCb.checked);
-                    console.log('[EGAIS][Auth] login success', data?.user?.name);
                     notify(`Добро пожаловать, ${data.user.name}`, 'success');
                     close();
                     this.check();
                 } catch (e) {
-                    console.error('[EGAIS][Auth] login error', e);
                     errorDiv.textContent = e.message;
                     errorDiv.classList.add('show');
                     submitBtn.disabled = false;
@@ -1401,10 +748,7 @@
                 }
             });
 
-            // Also attach click handler to submit button in case form submit is prevented elsewhere
             submitBtn.addEventListener('click', async (ev) => {
-                console.log('[EGAIS][Auth] submit button clicked');
-                // Trigger form submit flow
                 form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
             });
 
@@ -1413,16 +757,12 @@
         }
     };
 
-    // ==================== ACCESS MANAGER ====================
     const AccessManager = {
         async addLegalPerson(userId, lpId) {
-            console.log('[EGAIS] AccessManager.addLegalPerson', { userId, lpId });
             let profileId;
             try { 
                 profileId = await this.getProfileId(userId); 
-                console.log('[EGAIS] Got profileId from user page:', profileId);
             } catch (e) { 
-                console.log('[EGAIS] getProfileId failed, trying alt:', e.message);
                 profileId = await this.getProfileIdAlt(userId); 
             }
             await this.addToProfile(profileId, lpId);
@@ -1431,7 +771,6 @@
         },
 
         async getProfileId(userId) {
-            // GET запрос возвращает HTML страницу, ищем в ней ссылку на профиль
             const r = await new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: 'GET',
@@ -1440,24 +779,18 @@
                     onerror: reject
                 });
             });
-            console.log('[EGAIS] getProfileId response length:', r.responseText?.length);
-            // Ищем hash-based URL (как в оригинале): #app/edit/accessprofile/123?ref=user/456
             const hashMatch = r.responseText.match(/#app\/edit\/accessprofile\/(\d+)\?ref=user\/\d+/i);
             if (hashMatch?.[1]) {
-                console.log('[EGAIS] Found profile via hash URL:', hashMatch[1]);
                 return hashMatch[1];
             }
-            // Также пробуем обычный URL
             const m = r.responseText.match(/\/app\/edit\/accessprofile\/(\d+)/i);
             if (m?.[1]) {
-                console.log('[EGAIS] Found profile via regular URL:', m[1]);
                 return m[1];
             }
             throw new Error('Профиль не найден на странице пользователя');
         },
 
         async getProfileIdAlt(userId) {
-            console.log('[EGAIS] getProfileIdAlt for userId:', userId);
             const r = await new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: 'POST',
@@ -1480,23 +813,17 @@
                     onerror: reject
                 });
             });
-            console.log('[EGAIS] getProfileIdAlt response status:', r.status, 'length:', r.responseText?.length);
-            console.log('[EGAIS] getProfileIdAlt response preview:', r.responseText?.substring(0, 200));
             try {
                 const data = JSON.parse(r.responseText);
-                console.log('[EGAIS] getProfileIdAlt parsed data:', data);
                 if (data.recordsFiltered > 0 && data.data?.[0]?.DT_RowId) {
                     return data.data[0].DT_RowId;
                 }
             } catch (e) { 
-                console.log('[EGAIS] getProfileIdAlt parse error:', e);
-                console.log('[EGAIS] Response was not JSON, creating new profile');
             }
             return await this.createProfile(userId);
         },
 
         async createProfile(userId) {
-            console.log('[EGAIS] createProfile for userId:', userId);
             const r = await new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     method: 'POST',
@@ -1511,18 +838,14 @@
                     onerror: reject
                 });
             });
-            console.log('[EGAIS] createProfile response status:', r.status);
-            console.log('[EGAIS] createProfile response preview:', r.responseText?.substring(0, 200));
             try {
                 const data = JSON.parse(r.responseText);
-                console.log('[EGAIS] createProfile parsed:', data);
                 if (data.success && data.id) return data.id.toString();
-            } catch (e) { console.log('[EGAIS] createProfile parse error:', e); }
+            } catch (e) { }
             throw new Error('Не удалось создать профиль');
         },
 
         async addToProfile(profileId, lpId) {
-            console.log('[EGAIS] addToProfile', { profileId, lpId });
             const html = await new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({ 
                     method: 'GET', 
@@ -1532,9 +855,7 @@
                 });
             });
             const ids = this.extractIds(html);
-            console.log('[EGAIS] Current LP ids in profile:', ids);
             if (ids.includes(lpId.toString())) {
-                console.log('[EGAIS] LP already in profile');
                 return;
             }
             const fd = this.prepareForm(profileId, html, [...ids, lpId.toString()]);
@@ -1545,7 +866,6 @@
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
                     data: new URLSearchParams([...fd]).toString(),
                     onload: r => {
-                        console.log('[EGAIS] addToProfile response:', r.status);
                         if (r.status >= 200 && r.status < 300) resolve(r);
                         else reject(new Error(`HTTP ${r.status}`));
                     },
@@ -1617,8 +937,32 @@
     const postJSON = (url, payload, { headers = {}, timeout = 15000 } = {}) => new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
             method: 'POST', url, headers: { ...JSON_HEADERS, ...headers }, data: JSON.stringify(payload), timeout,
-            onload: r => r.status === 200 ? resolve(JSON.parse(r.responseText)) : reject(new Error(`HTTP ${r.status}`)),
+            onload: r => {
+                if (r.status === 200) {
+                    const text = r.responseText?.trim();
+                    if (!text) return resolve({});
+                    try {
+                        resolve(JSON.parse(text));
+                    } catch (e) {
+                        resolve({});
+                    }
+                } else {
+                    reject(new Error(`HTTP ${r.status}`));
+                }
+            },
             onerror: reject, ontimeout: () => reject(new Error('Таймаут запроса'))
+        });
+    });
+
+    const getJSON = (url, { headers = {}, timeout = 15000 } = {}) => new Promise((resolve, reject) => {
+        GM_xmlhttpRequest({
+            method: 'GET',
+            url,
+            headers: { ...headers },
+            timeout,
+            onload: r => r.status === 200 ? resolve(JSON.parse(r.responseText)) : reject(new Error(`HTTP ${r.status}`)),
+            onerror: reject,
+            ontimeout: () => reject(new Error('Таймаут запроса'))
         });
     });
 
@@ -1651,7 +995,6 @@ async function tzBottleAction(isAdd, markInfo, volume, buttonElement = null) {
         if (!AuthState.auth) throw new Error('Требуется авторизация. Нажмите 🔐 в правом верхнем углу.');
         if (!AuthState.token) throw new Error('Нет токена для текущей организации. Добавьте доступ через ➕.');
 
-        // Используем встроенный BartenderAPI
         const result = isAdd 
             ? await BartenderAPI.addBottle(markInfo, volume)
             : await BartenderAPI.removeBottle(markInfo);
@@ -1760,7 +1103,6 @@ async function checkAndUpdateTZButtons() {
         XMLHttpRequest.prototype.send = function(body) {
             try {
                 if (this._url) {
-                    // Отслеживание legalPersonId из URL остатков
                     const restsMatch = this._url.match(/\/api\/front\/egais\/rests\/legalpersons\/(\d+)\/strong/);
                     if (restsMatch?.[1]) {
                         legalPersonId = restsMatch[1];
@@ -1768,14 +1110,12 @@ async function checkAndUpdateTZButtons() {
                         AuthState.token = AuthState.getToken();
                         AuthUI.update();
                     }
-                    // Отслеживание смены legalPerson для очистки кэша
                     const lpMatch = this._url.match(/\/legalpersons\/(\d+)/);
                     if (lpMatch?.[1] && lpMatch[1] !== currentLegalPersonIdForCache) {
                         clearCacheForNewLegalPerson(lpMatch[1]);
                     }
                 }
             } catch (e) {
-                console.error('[EGAIS] XHR intercept error:', e);
             }
             return origSend.call(this, body);
         };
@@ -1833,11 +1173,40 @@ function clearCacheForNewLegalPerson(newLegalPersonId) {
         Object.keys(bottleCache).forEach(k => delete bottleCache[k]);
         GM_setValue('bottleCache', bottleCache);
     } catch (e) {
-        console.error('[EGAIS] Failed to clear bottleCache:', e);
         GM_setValue('bottleCache', {});
     }
     bottleCheckCache = {};
     currentLegalPersonIdForCache = newLegalPersonId;
+    resetMappingsState();
+}
+
+function resetMappingsState() {
+    mappingsState.items = [];
+    mappingsState.filtered = [];
+    mappingsState.paged = [];
+    mappingsState.loading = false;
+    mappingsState.loaded = false;
+    mappingsState.lastLegalPersonId = null;
+    mappingsState.currentPage = 1;
+    mappingsState.onlyUnmapped = false;
+    mappingsState.tableQuery = '';
+    
+    const container = document.querySelector('.egais-mappings-container');
+    if (container) {
+        const checkbox = container.querySelector('.egais-mappings-toggle input[type="checkbox"]');
+        if (checkbox) checkbox.checked = false;
+        const searchInput = container.querySelector('.egais-mappings-search');
+        if (searchInput) searchInput.value = '';
+        
+        if (container.style.display !== 'none') {
+            const tableWrapper = container.querySelector('.egais-mappings-table-wrapper');
+            if (tableWrapper) tableWrapper.innerHTML = '<div class="loading-spinner">Загрузка сопоставлений...</div>';
+            setTimeout(() => {
+                const lpId = currentLegalPerson();
+                if (lpId) loadMappings(lpId, true);
+            }, 100);
+        }
+    }
 }
 
 function updateTZStatusInUI(markInfo, inTZ) {
@@ -1863,7 +1232,6 @@ function updateTZStatusInModals(markInfo, inTZ) {
 }
 
 function setupLegalPersonIdObserver() {
-    // Логика перенесена в interceptXHR(), оставляем заглушку для совместимости вызовов
 }
 
 async function forceCheckTZStatus(markInfo, legalPersonId) {
@@ -1974,18 +1342,13 @@ async function forceCheckTZStatus(markInfo, legalPersonId) {
     const extractShortCode = (fullMarkCode) => {
         if (!fullMarkCode) return null;
         const code = fullMarkCode.trim();
-        // EGAIS format: 4-digit prefix + 11-digit short code + rest
-        // Example: 236300013138142101800174... → short code: 30013138142 (positions 4-14)
         if (code.length >= 15) {
             const shortMark = code.substring(4, 15);
             if (/^\d{11}$/.test(shortMark)) return shortMark;
         }
-        // Fallback: find any 11 or 13 digit sequence
         const m = code.match(/\d{11}|\d{13}/);
         return m ? m[0] : null;
     };
-
-
 
     async function getOrderItemDetails(itemId, orderId) {
         return new Promise(resolve => {
@@ -2111,7 +1474,6 @@ function addCheckOrdersButton() {
         return `${base}<span class="bottle-code" style="font-weight: 600;">${bottle.shortCode}</span><span class="bottle-match match-not-found">✗ Не найдена</span></div>${details}</div></div></div>`;
     }
 
-
 async function displayOrdersInModal() {
         const content = document.querySelector('.orders-modal .modal-content');
 
@@ -2121,11 +1483,7 @@ async function displayOrdersInModal() {
         }
 
         if (!ordersLoaded) {
-            content.innerHTML = `
-                <div class="loading-spinner">
-                    Заказы еще не загружены. Нажмите "Проверить заказы" для начала загрузки.
-                    <div style="font-size: 12px; margin-top: 10px; color: #999;">Это может занять несколько секунд</div>
-                </div>`;
+            content.innerHTML = `<div class="loading-spinner">Заказы еще не загружены. Нажмите "Проверить заказы" для начала загрузки.<div style="font-size: 12px; margin-top: 10px; color: #999;">Это может занять несколько секунд</div></div>`;
             return;
         }
 
@@ -2346,7 +1704,6 @@ async function displayOrdersInModal() {
         filterAndSortTable();
     }
 
-
     function resetFilters() {
         currentFilters = { nomenclature: '', alkoCode: '', volumeMin: '', volumeMax: '', tzStatus: 'all', markSearch: '', sortField: 'nomenclature', sortDirection: 'asc' };
         updateFilterInputs();
@@ -2436,7 +1793,6 @@ async function displayOrdersInModal() {
         ['total-count', 'filtered-count', 'tz-count', 'not-tz-count', 'avg-volume', 'alko-count']
             .forEach((id, i) => document.getElementById(id).textContent = [total, filtered, tzCount, notTzCount, Math.round(avgVolume), alkoCount][i]);
     }
-
 
     function populateAlkoCodeFilter(bottles) {
         const select = document.getElementById('alko-code-filter');
@@ -2673,8 +2029,6 @@ function generateDataMatrixBase64Large(markCode) {
     });
 }
 
-
-
     async function displayResultsInModal(results, nomenclature, currentLegalPersonId, positionName = '') {
         const content = document.querySelector('.modal-content');
         content.innerHTML = '<div class="loading-spinner">Загрузка...</div>';
@@ -2723,7 +2077,6 @@ function generateDataMatrixBase64Large(markCode) {
         const noms = [...new Set(bottles.map(b => b.egaisNomenclatureInfo || 'Неизвестная номенклатура'))].sort();
         select.innerHTML = '<option value="">Все номенклатуры</option>' + noms.map(n => `<option value="${n}">${n}</option>`).join('');
     }
-
 
     async function loadBottleDetails() {
         const volumeCells = document.querySelectorAll('.volume-cell');
@@ -2832,6 +2185,629 @@ function generateDataMatrixBase64Large(markCode) {
         form.insertBefore(searchContainer, form.querySelector('.ant-segmented')?.nextSibling || tableWrapper);
     }
 
+    function ensureMappingsContainer() {
+        const form = document.querySelector('form.ant-form');
+        if (!form) return null;
+        let container = form.querySelector('.egais-mappings-container');
+        if (container) return container;
+
+        container = createEl('div', 'egais-mappings-container');
+
+        const header = createEl('div', 'egais-mappings-header');
+        const title = createEl('div', 'egais-mappings-title', 'Сопоставление номенклатур ЕГАИС');
+        const actions = createEl('div', 'egais-mappings-actions');
+
+        const refreshBtn = createButton({ text: 'Обновить', variant: 'primary' });
+        refreshBtn.addEventListener('click', async () => {
+            const lpId = currentLegalPerson();
+            if (!lpId) { alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.'); return; }
+            await loadMappings(lpId, true);
+        });
+
+        actions.append(refreshBtn);
+        header.append(title, actions);
+
+        const controls = createEl('div', 'egais-mappings-header');
+        const leftControls = createEl('div', 'egais-mappings-actions');
+        const rightControls = createEl('div', 'egais-mappings-actions');
+
+        const onlyUnmappedLabel = createEl('label', 'egais-mappings-toggle');
+        const onlyUnmappedInput = createEl('input');
+        onlyUnmappedInput.type = 'checkbox';
+        onlyUnmappedInput.addEventListener('change', () => {
+            mappingsState.onlyUnmapped = onlyUnmappedInput.checked;
+            mappingsState.currentPage = 1;
+            applyMappingsFilter();
+        });
+        const onlyUnmappedText = createEl('span', '', 'Только без сопоставлений');
+        onlyUnmappedLabel.append(onlyUnmappedInput, onlyUnmappedText);
+
+        leftControls.append(onlyUnmappedLabel);
+
+        const tableSearch = createEl('input', 'egais-mappings-search');
+        tableSearch.type = 'text';
+        tableSearch.placeholder = 'Поиск по таблице';
+        tableSearch.addEventListener('input', () => {
+            mappingsState.tableQuery = tableSearch.value.trim();
+            mappingsState.currentPage = 1;
+            applyMappingsFilter();
+        });
+        rightControls.append(tableSearch);
+
+        controls.append(leftControls, rightControls);
+
+        const stats = createEl('div', 'egais-mappings-stats', '');
+        const tableWrapper = createEl('div', 'egais-mappings-table-wrapper');
+        tableWrapper.innerHTML = '<div class="loading-spinner">Загрузка сопоставлений...</div>';
+
+        container.append(header, controls, stats, tableWrapper);
+
+        const segmented = form.querySelector('.ant-segmented');
+        const insertPoint = segmented?.nextSibling || form.querySelector('.manual-search-container')?.nextSibling || form;
+        form.insertBefore(container, insertPoint);
+        return container;
+    }
+
+    async function loadMappings(legalPersonId, force = false) {
+        if (!legalPersonId) return;
+        if (mappingsState.loading) return;
+        if (mappingsState.loaded && mappingsState.lastLegalPersonId === legalPersonId && !force) {
+            applyMappingsFilter();
+            return;
+        }
+
+        mappingsState.loading = true;
+        mappingsState.loaded = false;
+        mappingsState.lastLegalPersonId = legalPersonId;
+
+        const container = ensureMappingsContainer();
+        const tableWrapper = container?.querySelector('.egais-mappings-table-wrapper');
+        if (tableWrapper) tableWrapper.innerHTML = '<div class="loading-spinner">Загрузка сопоставлений...</div>';
+
+        const payload = {
+            legalPersonId: parseInt(legalPersonId, 10),
+            page: { limit: 100000, offset: 0 },
+            filter: { egaisNomenclature: '', view: 'ALL' }
+        };
+
+        try {
+            const data = await postJSON(URLS.mappingsView, payload, { timeout: 30000 });
+            mappingsState.items = Array.isArray(data.items) ? data.items : [];
+            mappingsState.currentPage = 1;
+            mappingsState.loaded = true;
+            mappingsState.loading = false;
+            applyMappingsFilter();
+        } catch (e) {
+            mappingsState.loading = false;
+            if (tableWrapper) tableWrapper.innerHTML = `<div class="error-message">Ошибка загрузки сопоставлений: ${e.message}</div>`;
+        }
+    }
+
+    const searchRestaurantNomenclature = async (query, legalPersonId) => {
+        if (!query) return [];
+        const url = `${URLS.nomenclatureSearch}?filter=${encodeURIComponent(query)}&legalPersonId=${encodeURIComponent(legalPersonId)}`;
+        return getJSON(url, { timeout: 20000 });
+    };
+
+    const createMapping = async (legalPersonId, egaisNomenclatureId, nomenclatureId) =>
+        postJSON(URLS.mappingsCreate, { legalPersonId, egaisNomenclatureId, nomenclatureId }, { timeout: 20000 });
+
+    const deleteMapping = async (legalPersonId, egaisNomenclatureId) =>
+        postJSON(URLS.mappingsDelete, { legalPersonId, egaisNomenclatureId }, { timeout: 20000 });
+
+    function applyMappingsFilter() {
+        const query = (mappingsState.tableQuery || '').toLowerCase();
+        let list = mappingsState.items.slice();
+
+        if (mappingsState.onlyUnmapped) {
+            list = list.filter(item => !item.nomenclature?.id);
+        }
+
+        if (query) {
+            list = list.filter(item => {
+                const egaisName = item.egaisNomenclature?.name || '';
+                const egaisCode = item.egaisNomenclature?.code || '';
+                const restName = item.nomenclature?.name || '';
+                return (
+                    egaisName.toLowerCase().includes(query) ||
+                    egaisCode.toLowerCase().includes(query) ||
+                    restName.toLowerCase().includes(query)
+                );
+            });
+        }
+
+        mappingsState.filtered = list;
+        const start = (mappingsState.currentPage - 1) * mappingsState.pageSize;
+        const end = start + mappingsState.pageSize;
+        mappingsState.paged = list.slice(start, end);
+        renderMappingsTable();
+    }
+
+    function renderMappingsTable() {
+        const container = ensureMappingsContainer();
+        if (!container) return;
+        const stats = container.querySelector('.egais-mappings-stats');
+        const tableWrapper = container.querySelector('.egais-mappings-table-wrapper');
+
+        const total = mappingsState.items.length;
+        const shown = mappingsState.filtered.length;
+        if (stats) stats.textContent = `${shown ? `${(mappingsState.currentPage - 1) * mappingsState.pageSize + 1}-${Math.min(mappingsState.currentPage * mappingsState.pageSize, shown)}` : '0'} из ${shown}`;
+
+        if (!shown) {
+            tableWrapper.innerHTML = '<div class="egais-mappings-empty">Ничего не найдено</div>';
+            return;
+        }
+
+        const rows = mappingsState.paged.map((item, idx) => {
+            const egais = item.egaisNomenclature || {};
+            const rest = item.nomenclature || {};
+            const egaisName = egais.name || 'Н/Д';
+            const egaisCode = egais.code || 'Н/Д';
+            const egaisCapacity = egais.capacity ? `${egais.capacity}` : 'Н/Д';
+            const restName = rest.name || '';
+            const restMeasure = rest.measure ? rest.measure : '';
+            const hasRest = !!rest.id;
+            const rowKey = `${egais.id || 'egais'}_${rest.id || 'none'}`;
+            const rowClass = hasRest ? '' : 'egais-unmapped-row';
+
+            return `<tr data-row-key="${rowKey}" class="ant-table-row ant-table-row-level-0 ${rowClass}" data-egais-id="${egais.id || ''}"><td class="ant-table-cell">${egaisCode}</td><td class="ant-table-cell">${egaisName}</td><td class="ant-table-cell">${egaisCapacity}</td><td class="ant-table-cell"><div class="ant-select dxbx-selectcomponent__DxBxSelect-sc-1j2coho-0 ibtUQh ant-select-single ant-select-allow-clear ant-select-show-arrow ant-select-show-search egais-mappings-select" data-egais-id="${egais.id || ''}" data-rest-id="${rest.id || ''}" data-rest-name="${restName}" data-rest-measure="${restMeasure}"><div class="ant-select-selector"><span class="ant-select-selection-search"><input type="search" autocomplete="off" class="ant-select-selection-search-input" placeholder="" value=""></span>${hasRest ? `<span class="ant-select-selection-item" title="${restName}${restMeasure ? `, ${restMeasure}` : ''}">${restName}${restMeasure ? `, ${restMeasure}` : ''}</span>` : `<span class="ant-select-selection-placeholder">Не выбрано</span>`}</div><span class="ant-select-arrow" aria-hidden="true"><span role="img" aria-label="search" class="anticon anticon-search ant-select-suffix">🔍</span></span><span class="ant-select-clear" aria-hidden="true" style="${hasRest ? '' : 'display:none;'}">✕</span></div></td></tr>`;
+        }).join('');
+
+        tableWrapper.innerHTML = `<div class="ant-table-wrapper"><div class="ant-spin-nested-loading"><div class="ant-spin-container"><div class="ant-table ant-table-scroll-horizontal"><div class="ant-table-container"><div class="ant-table-content" style="overflow: auto hidden;"><table style="width: 950px; min-width: 100%; table-layout: auto;"><colgroup><col style="width: 220px;"><col style="width: 600px;"><col style="width: 90px;"><col style="width: 500px;"></colgroup><thead class="ant-table-thead"><tr><th class="ant-table-cell">Алк. код</th><th class="ant-table-cell">Номенклатура ЕГАИС</th><th class="ant-table-cell">Объем</th><th class="ant-table-cell">Номенклатура ресторана</th></tr></thead><tbody class="ant-table-tbody">${rows}</tbody></table></div></div></div>${renderMappingsPagination()}</div></div></div>`;
+        attachMappingsSelectHandlers();
+        attachMappingsPaginationHandlers();
+    }
+
+    function renderMappingsPagination() {
+        const total = mappingsState.filtered.length;
+        const pageSize = mappingsState.pageSize;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const current = Math.min(mappingsState.currentPage, totalPages);
+
+        const buildPageItem = (page, label = null, active = false) => `<li title="${page}" class="ant-pagination-item ant-pagination-item-${page}${active ? ' ant-pagination-item-active' : ''}" tabindex="0" data-page="${page}"><a rel="nofollow">${label || page}</a></li>`;
+
+        const pages = [];
+        const maxButtons = 5;
+        let start = Math.max(1, current - 2);
+        let end = Math.min(totalPages, start + maxButtons - 1);
+        if (end - start < maxButtons - 1) start = Math.max(1, end - maxButtons + 1);
+        for (let i = start; i <= end; i++) pages.push(buildPageItem(i, null, i === current));
+
+        return `<ul class="ant-pagination ant-pagination-mini ant-table-pagination ant-table-pagination-right"><li class="ant-pagination-total-text">${total ? `${(current - 1) * pageSize + 1}-${Math.min(current * pageSize, total)} из ${total}` : `0 из ${total}`}</li><li title="Назад" class="ant-pagination-prev ${current === 1 ? 'ant-pagination-disabled' : ''}" aria-disabled="${current === 1}"><button class="ant-pagination-item-link" type="button" tabindex="-1" ${current === 1 ? 'disabled' : ''} data-page="${current - 1}"><span role="img" aria-label="left" class="anticon anticon-left">‹</span></button></li>${pages.join('')}<li title="Вперед" class="ant-pagination-next ${current === totalPages ? 'ant-pagination-disabled' : ''}" aria-disabled="${current === totalPages}"><button class="ant-pagination-item-link" type="button" tabindex="-1" ${current === totalPages ? 'disabled' : ''} data-page="${current + 1}"><span role="img" aria-label="right" class="anticon anticon-right">›</span></button></li></ul>`;
+    }
+
+    function attachMappingsPaginationHandlers() {
+        const container = document.querySelector('.egais-mappings-container');
+        if (!container) return;
+        container.querySelectorAll('[data-page]').forEach(el => {
+            el.addEventListener('click', () => {
+                const page = parseInt(el.getAttribute('data-page'), 10);
+                if (!page || page < 1) return;
+                const totalPages = Math.max(1, Math.ceil(mappingsState.filtered.length / mappingsState.pageSize));
+                if (page > totalPages) return;
+                mappingsState.currentPage = page;
+                applyMappingsFilter();
+            });
+        });
+    }
+
+    let mappingsDropdownState = { open: false, anchor: null, list: null, timer: null };
+
+    function ensureMappingsDropdown() {
+        let dropdown = document.querySelector('.egais-mappings-dropdown');
+        if (dropdown) return dropdown;
+        dropdown = createEl('div', 'egais-mappings-dropdown');
+        dropdown.style.display = 'none';
+        document.body.appendChild(dropdown);
+        return dropdown;
+    }
+
+    function openMappingsDropdown(anchor, items, onSelect, loading = false) {
+        const dropdown = ensureMappingsDropdown();
+        mappingsDropdownState.anchor = anchor;
+        mappingsDropdownState.open = true;
+        const rect = anchor.getBoundingClientRect();
+        dropdown.style.left = `${rect.left + window.scrollX}px`;
+        dropdown.style.top = `${rect.bottom + window.scrollY + 2}px`;
+        dropdown.style.minWidth = `${Math.max(rect.width, 300)}px`;
+        dropdown.style.maxWidth = '500px';
+        
+        if (loading) {
+            dropdown.innerHTML = '<div class="ant-select-item ant-select-item-option" style="color:#999;cursor:default;"><span class="egais-mappings-spinner"></span>Поиск...</div>';
+        } else {
+            dropdown.innerHTML = items.length ? `<div class="rc-virtual-list-holder-inner" style="display:flex;flex-direction:column;">` +
+                items.map((n, i) => {
+                    const displayName = n.name + (n.measure ? `, ${n.measure}` : '');
+                    return `<div aria-selected="false" class="ant-select-item ant-select-item-option${i === 0 ? ' ant-select-item-option-active' : ''}" title="${displayName}" data-nom-id="${n.id}" data-nom-name="${n.name}" data-nom-measure="${n.measure || ''}"><div class="ant-select-item-option-content">${displayName}</div><span class="ant-select-item-option-state" style="user-select:none;" unselectable="on" aria-hidden="true"></span></div>`;
+                }).join('') + '</div>' : '<div class="ant-select-item ant-select-item-option" style="color:#999;cursor:default;">Ничего не найдено</div>';
+
+            dropdown.querySelectorAll('.ant-select-item-option[data-nom-id]').forEach(node => {
+                node.addEventListener('mousedown', (e) => {
+                    e.preventDefault(); // Prevent blur on input
+                });
+                node.addEventListener('mouseenter', () => {
+                    dropdown.querySelectorAll('.ant-select-item-option-active').forEach(el => el.classList.remove('ant-select-item-option-active'));
+                    node.classList.add('ant-select-item-option-active');
+                });
+                node.addEventListener('click', () => {
+                    const nomId = parseInt(node.getAttribute('data-nom-id'), 10);
+                    if (!nomId) return;
+                    const selected = {
+                        id: nomId,
+                        name: node.getAttribute('data-nom-name'),
+                        measure: node.getAttribute('data-nom-measure')
+                    };
+                    updateSelectUI(anchor, selected);
+                    onSelect(selected);
+                    closeMappingsDropdown();
+                    hideMappingsHint(anchor);
+                });
+            });
+        }
+        dropdown.style.display = 'block';
+    }
+
+    function updateSelectUI(select, nomenclature) {
+        const input = select.querySelector('.ant-select-selection-search-input');
+        let selItem = select.querySelector('.ant-select-selection-item');
+        const placeholder = select.querySelector('.ant-select-selection-placeholder');
+        const clear = select.querySelector('.ant-select-clear');
+        
+        if (input) {
+            input.value = '';
+            input.blur(); // Remove focus to hide cursor
+        }
+        
+        if (nomenclature) {
+            const displayText = nomenclature.name + (nomenclature.measure ? `, ${nomenclature.measure}` : '');
+            if (placeholder) placeholder.style.display = 'none';
+            if (!selItem) {
+                selItem = createEl('span', 'ant-select-selection-item');
+                const selector = select.querySelector('.ant-select-selector');
+                selector?.appendChild(selItem);
+            }
+            selItem.textContent = displayText;
+            selItem.title = displayText;
+            selItem.style.display = '';
+            if (clear) clear.style.display = '';
+            select.setAttribute('data-rest-name', nomenclature.name);
+            select.setAttribute('data-rest-measure', nomenclature.measure || '');
+            select.setAttribute('data-rest-id', nomenclature.id);
+            const row = select.closest('tr');
+            if (row) row.classList.remove('egais-unmapped-row');
+        } else {
+            if (placeholder) placeholder.style.display = '';
+            if (selItem) selItem.remove();
+            if (clear) clear.style.display = 'none';
+            select.setAttribute('data-rest-name', '');
+            select.setAttribute('data-rest-measure', '');
+            select.setAttribute('data-rest-id', '');
+            const row = select.closest('tr');
+            if (row) row.classList.add('egais-unmapped-row');
+        }
+        
+        select.classList.remove('ant-select-focused', 'ant-select-open');
+    }
+
+    function showMappingsHint(select, charsRemaining) {
+        let hint = document.querySelector('.egais-mappings-hint-global');
+        if (!hint) {
+            hint = createEl('div', 'egais-mappings-hint-global');
+            document.body.appendChild(hint);
+        }
+        const rect = select.getBoundingClientRect();
+        hint.textContent = `Введите ещё символов: ${charsRemaining}`;
+        hint.style.left = `${rect.left + window.scrollX}px`;
+        hint.style.top = `${rect.bottom + window.scrollY + 4}px`;
+        hint.style.display = 'block';
+        hint.dataset.selectId = select.getAttribute('data-egais-id');
+    }
+
+    function hideMappingsHint(select) {
+        const hint = document.querySelector('.egais-mappings-hint-global');
+        if (hint) hint.style.display = 'none';
+    }
+
+    function closeMappingsDropdown() {
+        const dropdown = document.querySelector('.egais-mappings-dropdown');
+        if (dropdown) dropdown.style.display = 'none';
+        mappingsDropdownState.open = false;
+        mappingsDropdownState.anchor = null;
+    }
+
+    function attachMappingsSelectHandlers() {
+        document.querySelectorAll('.egais-mappings-select').forEach(select => {
+            const input = select.querySelector('.ant-select-selection-search-input');
+            const clear = select.querySelector('.ant-select-clear');
+            const egaisId = parseInt(select.getAttribute('data-egais-id'), 10);
+
+            if (!select.dataset.egaisMappingsClick) {
+                select.dataset.egaisMappingsClick = '1';
+                select.style.cursor = 'text';
+                select.addEventListener('click', (e) => {
+                    if (e.target.closest('.ant-select-clear')) return;
+                    if (input) {
+                        input.focus();
+                        const selItem = select.querySelector('.ant-select-selection-item');
+                        if (selItem) selItem.style.display = 'none';
+                        select.classList.add('ant-select-focused', 'ant-select-open');
+                    }
+                });
+            }
+
+            if (input && !input.dataset.egaisMappings) {
+                input.dataset.egaisMappings = '1';
+                input.addEventListener('click', (e) => e.stopPropagation());
+                
+                input.addEventListener('focus', () => {
+                    const selItem = select.querySelector('.ant-select-selection-item');
+                    const placeholder = select.querySelector('.ant-select-selection-placeholder');
+                    if (selItem) selItem.style.display = 'none';
+                    if (placeholder) placeholder.style.display = 'none';
+                    select.classList.add('ant-select-focused', 'ant-select-open');
+                    showMappingsHint(select, 3);
+                });
+                
+                input.addEventListener('blur', () => {
+                    setTimeout(() => {
+                        if (!mappingsDropdownState.open || mappingsDropdownState.anchor !== select) {
+                            const selItem = select.querySelector('.ant-select-selection-item');
+                            const placeholder = select.querySelector('.ant-select-selection-placeholder');
+                            if (selItem && selItem.textContent) {
+                                selItem.style.display = '';
+                            } else if (placeholder) {
+                                placeholder.style.display = '';
+                            }
+                            select.classList.remove('ant-select-focused', 'ant-select-open');
+                            input.value = '';
+                            closeMappingsDropdown();
+                            hideMappingsHint(select);
+                        }
+                    }, 200);
+                });
+                
+                input.addEventListener('input', () => {
+                    const query = input.value.trim();
+                    if (query.length >= 3) {
+                        hideMappingsHint(select);
+                        handleMappingsSearch(select, query);
+                    } else {
+                        closeMappingsDropdown();
+                        showMappingsHint(select, 3 - query.length);
+                    }
+                });
+            }
+
+            if (clear && !clear.dataset.egaisMappings) {
+                clear.dataset.egaisMappings = '1';
+                clear.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    const lpId = currentLegalPerson();
+                    if (!lpId || !egaisId) return;
+                    try {
+                        await deleteMapping(parseInt(lpId, 10), egaisId);
+                        updateMappingItem(egaisId, null);
+                    } catch (err) {
+                        alert('Ошибка удаления: ' + err.message);
+                    }
+                });
+            }
+        });
+
+        if (!document.body.dataset.mappingsDropdownListener) {
+            document.body.dataset.mappingsDropdownListener = '1';
+            document.addEventListener('click', (e) => {
+                if (!mappingsDropdownState.open) return;
+                const dropdown = document.querySelector('.egais-mappings-dropdown');
+                if (dropdown && (dropdown.contains(e.target) || mappingsDropdownState.anchor?.contains(e.target))) return;
+                closeMappingsDropdown();
+            });
+        }
+    }
+
+    async function handleMappingsSearch(select, query) {
+        const lpId = currentLegalPerson();
+        const egaisId = parseInt(select.getAttribute('data-egais-id'), 10);
+        if (!lpId || !egaisId) return;
+        if (!query || query.length < 1) { closeMappingsDropdown(); return; }
+
+        openMappingsDropdown(select, [], () => {}, true);
+
+        clearTimeout(mappingsDropdownState.timer);
+        mappingsDropdownState.timer = setTimeout(async () => {
+            try {
+                const results = await searchRestaurantNomenclature(query, lpId);
+                openMappingsDropdown(select, Array.isArray(results) ? results : [], async (selected) => {
+                    try {
+                        await createMapping(parseInt(lpId, 10), egaisId, selected.id);
+                        updateMappingItem(egaisId, { id: selected.id, name: selected.name, measure: selected.measure });
+                    } catch (e) {
+                        alert('Ошибка создания сопоставления: ' + e.message);
+                    }
+                });
+            } catch (e) {
+                openMappingsDropdown(select, [], () => {});
+            }
+        }, 300);
+    }
+
+    function updateMappingItem(egaisNomenclatureId, newNomenclature, skipRerender = false) {
+        mappingsState.items = mappingsState.items.map(item => {
+            if (item.egaisNomenclature?.id === egaisNomenclatureId) {
+                return { ...item, nomenclature: newNomenclature };
+            }
+            return item;
+        });
+        if (!skipRerender) {
+            applyMappingsFilter();
+        }
+    }
+
+    function openMappingsEditModal(item) {
+        const lpId = currentLegalPerson();
+        if (!lpId) { alert('Не удалось определить legalPersonId. Пожалуйста, обновите страницу.'); return; }
+
+        const overlay = createEl('div', 'modal-overlay active');
+        const modal = createEl('div', 'egais-modal egais-mappings-modal active');
+        const header = createEl('div', 'modal-header');
+        const titleContainer = createEl('div', 'modal-title-container');
+        titleContainer.append(
+            createEl('h3', 'modal-title', 'Сопоставление номенклатуры'),
+            createEl('div', 'modal-subtitle', item.egaisNomenclature?.name || 'Номенклатура ЕГАИС')
+        );
+        const closeButton = createEl('button', 'modal-close');
+        closeButton.innerHTML = '&times;';
+        const closeAll = () => { modal.remove(); overlay.remove(); };
+        closeButton.addEventListener('click', closeAll);
+        overlay.addEventListener('click', closeAll);
+        header.append(titleContainer, closeButton);
+
+        const content = createEl('div', 'modal-content');
+        const input = createEl('input', 'egais-mappings-modal-search');
+        input.type = 'text';
+        input.placeholder = 'Начните вводить номенклатуру ресторана...';
+
+        const results = createEl('div', 'egais-mappings-results');
+        results.innerHTML = '<div class="egais-mappings-empty">Введите запрос для поиска</div>';
+
+        let searchTimer = null;
+        input.addEventListener('input', () => {
+            const query = input.value.trim();
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(async () => {
+                if (!query) {
+                    results.innerHTML = '<div class="egais-mappings-empty">Введите запрос для поиска</div>';
+                    return;
+                }
+                results.innerHTML = '<div class="loading-spinner">Поиск...</div>';
+                try {
+                    const data = await searchRestaurantNomenclature(query, lpId);
+                    if (!Array.isArray(data) || data.length === 0) {
+                        results.innerHTML = '<div class="egais-mappings-empty">Ничего не найдено</div>';
+                        return;
+                    }
+                    results.innerHTML = data.map(n => `
+                        <div class="egais-mappings-result-item" data-nom-id="${n.id}" data-nom-name="${n.name}" data-nom-measure="${n.measure || ''}">
+                            <div class="egais-mappings-result-name">${n.name}</div>
+                            <div class="egais-mappings-result-measure">${n.measure || ''}</div>
+                        </div>
+                    `).join('');
+
+                    results.querySelectorAll('.egais-mappings-result-item').forEach(node => {
+                        node.addEventListener('click', async () => {
+                            const nomId = parseInt(node.getAttribute('data-nom-id'), 10);
+                            if (!nomId) return;
+                            try {
+                                await createMapping(parseInt(lpId, 10), item.egaisNomenclature?.id, nomId);
+                                updateMappingItem(item.egaisNomenclature?.id, { id: nomId, name: node.getAttribute('data-nom-name'), measure: node.getAttribute('data-nom-measure') });
+                                closeAll();
+                            } catch (e) {
+                                alert('Ошибка создания сопоставления: ' + e.message);
+                            }
+                        });
+                    });
+                } catch (e) {
+                    results.innerHTML = `<div class="error-message">Ошибка поиска: ${e.message}</div>`;
+                }
+            }, 350);
+        });
+
+        content.append(input, results);
+        modal.append(header, content);
+        document.body.append(overlay, modal);
+        input.focus();
+    }
+
+    function setMappingsActive(active) {
+        const container = ensureMappingsContainer();
+        const form = document.querySelector('form.ant-form');
+        const tableWrapper = form?.querySelector('.ant-table-wrapper.strong-tablestyled__StyledTable-sc-1ppi8vp-0');
+        const manualSearch = form?.querySelector('.manual-search-container');
+        const ordersButtons = form?.querySelector('.orders-buttons-container');
+        const pagination = form?.querySelector('ul.ant-pagination.ant-table-pagination');
+
+        const hideElement = (el) => {
+            if (!el) return;
+            el.style.visibility = 'hidden';
+            el.style.position = 'absolute';
+            el.style.pointerEvents = 'none';
+            el.style.height = '0';
+            el.style.overflow = 'hidden';
+        };
+        const showElement = (el) => {
+            if (!el) return;
+            el.style.visibility = '';
+            el.style.position = '';
+            el.style.pointerEvents = '';
+            el.style.height = '';
+            el.style.overflow = '';
+        };
+
+        if (container) container.style.display = active ? 'block' : 'none';
+        if (active) {
+            hideElement(tableWrapper);
+            hideElement(manualSearch);
+            hideElement(ordersButtons);
+            hideElement(pagination);
+        } else {
+            showElement(tableWrapper);
+            showElement(manualSearch);
+            showElement(ordersButtons);
+            showElement(pagination);
+        }
+
+        if (active) {
+            const lpId = currentLegalPerson();
+            if (lpId) loadMappings(lpId);
+        }
+    }
+
+    function addMappingsTab() {
+        if (!isTargetPage()) return;
+        const form = document.querySelector('form.ant-form');
+        const segmentedGroup = form?.querySelector('.ant-segmented-group');
+        if (!segmentedGroup) return;
+        if (segmentedGroup.querySelector('[data-egais-mappings-tab]')) return;
+
+        const existingItems = segmentedGroup.querySelectorAll('.ant-segmented-item:not([data-egais-mappings-tab])');
+        if (existingItems.length === 0) return; // Don't add if no other tabs
+
+        const existingInput = segmentedGroup.querySelector('input.ant-segmented-item-input');
+        const inputName = existingInput?.name || `egais-segmented-${Date.now()}`;
+
+        const label = createEl('label', 'ant-segmented-item');
+        label.setAttribute('data-egais-mappings-tab', '1');
+        const input = createEl('input', 'ant-segmented-item-input');
+        input.type = 'radio';
+        input.name = inputName;
+        input.value = 'mappings';
+        const text = createEl('div', 'ant-segmented-item-label', 'Сопоставления');
+        text.title = 'Сопоставления';
+        label.append(input, text);
+
+        segmentedGroup.appendChild(label);
+
+        label.addEventListener('click', (e) => {
+            segmentedGroup.querySelectorAll('.ant-segmented-item').forEach(i => {
+                i.classList.remove('ant-segmented-item-selected');
+            });
+            label.classList.add('ant-segmented-item-selected');
+            input.checked = true;
+            setMappingsActive(true);
+        });
+
+        segmentedGroup.querySelectorAll('.ant-segmented-item:not([data-egais-mappings-tab])').forEach(item => {
+            if (item.dataset.egaisMappingsListener) return;
+            item.dataset.egaisMappingsListener = '1';
+            item.addEventListener('click', () => {
+                label.classList.remove('ant-segmented-item-selected');
+                input.checked = false;
+                setMappingsActive(false);
+            });
+        });
+    }
+
   async function addEgaisButtons() {
     if (!isTargetPage()) return;
     const markElements = document.querySelectorAll('.strong-tablestyled__MarkItemWrapper-sc-1ppi8vp-1.gOhuPU');
@@ -2844,9 +2820,8 @@ function generateDataMatrixBase64Large(markCode) {
         const container = createEl('div', 'egais-buttons-container egais-mark-actions');
         const shortEl = createEl('span', 'short-mark-code', 'Загрузка...');
         const tzEl = createEl('span', 'tz-status tz-status-badge tz-loading', 'Проверка...');
-        // Кнопки ТЗ
         const tzBtns = createInlineTZButtons(markCode, calculatedVolume);
-        container.append(createEgaisButton(markCode), createDataMatrixButton(markCode), tzBtns, shortEl, tzEl);
+        container.append(createEgaisButton(markCode), createDataMatrixButton(markCode), createInvoiceSearchButton(markCode), tzBtns, shortEl, tzEl);
         el.parentNode.insertBefore(container, el.nextSibling);
         await Promise.all([loadShortMarkCode(markCode, shortEl), checkTZStatus(markCode, tzEl)]);
         el.setAttribute('data-egais-mark-processed', '1');
@@ -2875,7 +2850,6 @@ function generateDataMatrixBase64Large(markCode) {
     }
 
     function createInlineTZButtons(markCode, calculatedVolume) {
-        // Единая кнопка ТЗ - действие зависит от текущего статуса бутылки
         const btn = createButton({
             text: '+ТЗ',
             variant: 'accent',
@@ -2892,7 +2866,6 @@ function generateDataMatrixBase64Large(markCode) {
         return btn;
     }
 
-    // Обновляет кнопку ТЗ в соответствии со статусом
     function updateTZButtonState(btn, isInTZ) {
         if (!btn) return;
         btn.textContent = isInTZ ? '-ТЗ' : '+ТЗ';
@@ -2905,16 +2878,13 @@ function generateDataMatrixBase64Large(markCode) {
         if (!AuthState.auth) { notify('Сначала авторизуйтесь (🔐)', 'error'); return; }
         if (!AuthState.token) { notify('Нет токена для текущего ЮЛ. Добавьте доступ (➕)', 'error'); return; }
         
-        // Определяем текущий статус по соседнему элементу .tz-status
         const container = btn.closest('.egais-buttons-container') || btn.parentElement;
         const tzStatusEl = container?.querySelector('.tz-status');
         const isInTZ = tzStatusEl?.classList.contains('tz-yes') || false;
         
         if (isInTZ) {
-            // Удаляем из ТЗ
             await doRemoveFromTZ(btn, markCode, tzStatusEl);
         } else {
-            // Добавляем в ТЗ
             await doAddToTZ(btn, markCode, calculatedVolume, tzStatusEl);
         }
     }
@@ -2931,11 +2901,9 @@ function generateDataMatrixBase64Large(markCode) {
             btn.style.background = '#52c41a';
             notify(`Добавлено в ТЗ (${volume} мл)`, 'success');
             
-            // Обновляем статус в UI
             if (tzStatusEl) {
                 updateTZStatus(tzStatusEl, true);
             }
-            // Обновляем кэш
             const lpId = legalPersonId || GM_getValue('legalPersonId');
             if (lpId) {
                 bottleCache[`${lpId}_${markCode}`] = true;
@@ -2965,11 +2933,9 @@ function generateDataMatrixBase64Large(markCode) {
             btn.style.background = '#52c41a';
             notify('Удалено из ТЗ', 'success');
             
-            // Обновляем статус в UI
             if (tzStatusEl) {
                 updateTZStatus(tzStatusEl, false);
             }
-            // Обновляем кэш
             const lpId = legalPersonId || GM_getValue('legalPersonId');
             if (lpId) {
                 bottleCache[`${lpId}_${markCode}`] = false;
@@ -2989,7 +2955,6 @@ function generateDataMatrixBase64Large(markCode) {
         }
     }
 
-
     function createEgaisButton(markCode) {
         const btn = createButton({ text: 'ЕГАИС', variant: 'primary', className: 'egais-link-button',
             onClick: async (e) => { e.stopPropagation(); const id = currentLegalPerson() || await findLegalPersonId(); id ? openBottlePage(markCode, id) : alert('Не удалось определить legalPersonId.'); }
@@ -3002,6 +2967,78 @@ function generateDataMatrixBase64Large(markCode) {
         const btn = createButton({ text: 'DataMatrix', variant: 'success', className: 'datamatrix-button egais-ml-8', onClick: (e) => { e.stopPropagation(); generateDataMatrix(markCode); } });
         btn.dataset.markCode = markCode;
         return btn;
+    }
+
+    function createInvoiceSearchButton(markCode) {
+        const btn = createButton({
+            text: 'Накладная',
+            variant: 'warning',
+            className: 'invoice-search-button egais-ml-8',
+            title: 'Найти исходную накладную по марке',
+            onClick: (e) => { e.stopPropagation(); searchInvoiceByMark(markCode); }
+        });
+        btn.dataset.markCode = markCode;
+        return btn;
+    }
+
+    async function searchInvoiceByMark(markCode) {
+        if (!AuthState.auth || !AuthState.token) {
+            notify('Для поиска накладной необходима авторизация бармена', 'error');
+            return;
+        }
+
+        document.getElementById('invoice-search-modal')?.remove();
+        const modal = createEl('div', 'egais-modal invoice-result-modal active');
+        modal.id = 'invoice-search-modal';
+        const overlay = createEl('div', 'modal-overlay active');
+        const closeAll = () => { modal.remove(); overlay.remove(); };
+        overlay.addEventListener('click', closeAll);
+
+        modal.innerHTML = '<div class="invoice-modal-body"><div class="loading-spinner">Получение информации о бутылке...</div></div>';
+        document.body.append(overlay, modal);
+
+        try {
+            const bottleInfo = await BartenderAPI.getBottleInfo(markCode);
+            
+            if (!bottleInfo.invoice) {
+                modal.innerHTML = `<div class="invoice-modal-body"><div class="error-message" style="text-align: center; padding: 40px;"><div style="font-size: 48px; margin-bottom: 16px;">❌</div><div style="font-size: 16px; font-weight: 600; color: #333;">Накладная не найдена</div><div style="font-size: 13px; color: #666; margin-top: 8px;">Для данной марки не найдена информация о накладной</div></div></div><div class="invoice-modal-footer"><button class="invoice-btn-secondary" onclick="this.closest('.egais-modal').remove(); document.querySelector('.modal-overlay')?.remove();">Закрыть</button></div>`;
+                return;
+            }
+
+            const ttnNumber = bottleInfo.invoice.ttnNumber;
+            const invoiceDate = bottleInfo.invoice.date;
+            const bottle = bottleInfo.bottle;
+            const supplier = bottleInfo.invoice.supplier;
+            const statusHistory = bottleInfo.invoice.statusHistory || [];
+
+            modal.innerHTML = '<div class="invoice-modal-body"><div class="loading-spinner">Поиск накладной ' + ttnNumber + '...</div></div>';
+
+            const searchResult = await BartenderAPI.searchInvoice(ttnNumber, invoiceDate);
+
+            const invoice = searchResult.data?.[0];
+            const invoiceId = invoice?.DT_RowId;
+            const invoiceUrl = invoiceId ? `https://dxbx.ru/index#app/edit/invoice/${invoiceId}` : null;
+
+            const shortMark = bottle?.shortMarkCode || markCode.substring(5, 16);
+            const alcoCode = bottle?.nomenclature?.alcoCode || '';
+            
+            const recentStatuses = statusHistory.slice(-5).reverse();
+
+            modal.innerHTML = `<div class="invoice-modal-header"><div class="invoice-product-row"><div class="invoice-product-icon">🍷</div><div class="invoice-product-info"><div class="invoice-product-name">${bottle?.nomenclature?.name || 'Неизвестный продукт'}</div><div class="invoice-ttn-row"><span class="invoice-ttn-text">${ttnNumber}</span><span class="invoice-ttn-text">От ${invoiceDate}</span>${bottle?.active ? '<span class="invoice-egais-badge">На балансе ЕГАИС</span>' : ''}</div></div></div></div><div class="invoice-modal-body"><div class="invoice-cards-row"><div class="invoice-card"><div class="invoice-card-label">Алкокод:<button class="invoice-card-copy" onclick="navigator.clipboard.writeText('${alcoCode}'); this.textContent='✓'; setTimeout(()=>this.textContent='📋', 1500);">📋</button></div><div class="invoice-card-value">${alcoCode ? alcoCode.substring(0, 7) + '...' + alcoCode.slice(-8) : 'Н/Д'}</div></div><div class="invoice-card"><div class="invoice-card-label">Серия/номер:<button class="invoice-card-copy" onclick="navigator.clipboard.writeText('${shortMark}'); this.textContent='✓'; setTimeout(()=>this.textContent='📋', 1500);">📋</button></div><div class="invoice-card-value">${shortMark}</div></div></div><div class="invoice-mark-card"><div class="invoice-card-label">Марка:<button class="invoice-card-copy" onclick="navigator.clipboard.writeText('${markCode}'); this.textContent='✓'; setTimeout(()=>this.textContent='📋', 1500);">📋</button></div><div class="invoice-card-value" style="font-size: 11px;">${markCode.substring(0, 20)}...${markCode.slice(-20)}</div></div><div class="invoice-section-title">Общая информация</div><div class="invoice-info-list"><div class="invoice-info-item"><div class="invoice-info-icon">👤</div><div class="invoice-info-content"><div class="invoice-info-title">Текущий владелец</div><div class="invoice-info-value">${bottle?.actualOwner?.name || 'Н/Д'}</div>${bottle?.actualOwner?.inn ? `<div class="invoice-info-subtitle">ИНН: ${bottle.actualOwner.inn}  КПП: ${bottle.actualOwner.kpp || 'Н/Д'}</div>` : ''}</div></div><div class="invoice-info-item"><div class="invoice-info-icon">🚚</div><div class="invoice-info-content"><div class="invoice-info-title">Поставщик</div><div class="invoice-info-value">${supplier?.name || invoice?.supplier || 'Н/Д'}</div>${supplier?.inn ? `<div class="invoice-info-subtitle">ИНН: ${supplier.inn}  КПП: ${supplier.kpp || 'Н/Д'}</div>` : ''}</div></div><div class="invoice-info-item"><div class="invoice-info-icon">📅</div><div class="invoice-info-content"><div class="invoice-info-title">Дата розлива</div><div class="invoice-info-value">${bottle?.bottlingDate || 'Н/Д'}</div></div></div><div class="invoice-info-item"><div class="invoice-info-icon">🧪</div><div class="invoice-info-content"><div class="invoice-info-title">Объем</div><div class="invoice-info-value">${bottle?.nomenclature?.amount ? bottle.nomenclature.amount + ' л' : 'Н/Д'}</div></div></div><div class="invoice-info-item"><div class="invoice-info-icon">🔥</div><div class="invoice-info-content"><div class="invoice-info-title">Крепость</div><div class="invoice-info-value">${bottle?.nomenclature?.volume ? bottle.nomenclature.volume + ' %' : 'Н/Д'}</div></div></div></div>${recentStatuses.length > 0 ? `<div class="invoice-history-section"><div class="invoice-section-title">История операций ЕГАИС</div><div class="invoice-history-item" ${invoiceUrl ? `style="cursor: pointer;" onclick="window.open('${invoiceUrl}', '_blank')"` : ''}><div class="invoice-history-icon">📄</div><div class="invoice-history-content"><div class="invoice-history-title">Накладная<span class="invoice-history-ttn">${ttnNumber}</span>${invoiceUrl ? '<span class="invoice-history-arrow">›</span>' : ''}</div><div class="invoice-status-timeline">${recentStatuses.map(s => `<div class="invoice-status-item"><span class="invoice-status-label">${formatEgaisStatus(s.egaisStatus)}</span><div class="invoice-status-date">${s.date}</div></div>`).join('')}</div></div></div></div>` : ''}${!invoiceId ? `<div style="background: #fff7e6; border: 1px solid #ffd591; border-radius: 8px; padding: 12px; margin-top: 16px; text-align: center;"><div style="font-size: 13px; color: #d46b08;">⚠️ Накладная найдена в ЕГАИС, но не найдена в системе DXBX</div><div style="font-size: 11px; color: #999; margin-top: 4px;">Возможно, накладная принадлежит другому ЮЛ</div></div>` : ''}</div><div class="invoice-modal-footer">${invoiceUrl ? `<button class="invoice-btn-primary" onclick="window.open('${invoiceUrl}', '_blank')">📂 Открыть накладную</button>` : ''}<button class="invoice-btn-secondary" onclick="this.closest('.egais-modal').remove(); document.querySelector('.modal-overlay')?.remove();">Закрыть</button></div>`;
+
+        } catch (error) {
+            modal.innerHTML = `<div class="invoice-modal-body"><div class="error-message" style="text-align: center; padding: 40px;"><div style="font-size: 48px; margin-bottom: 16px;">❌</div><div style="font-size: 16px; font-weight: 600; color: #333;">Ошибка поиска</div><div style="font-size: 13px; color: #666; margin-top: 8px;">${error.message}</div></div></div><div class="invoice-modal-footer"><button class="invoice-btn-secondary" onclick="this.closest('.egais-modal').remove(); document.querySelector('.modal-overlay')?.remove();">Закрыть</button></div>`;
+        }
+    }
+
+    function formatEgaisStatus(status) {
+        const statusMap = {
+            'RECEIVED_FROM_EGAIS': 'Получена из ЕГАИС',
+            'ACCEPTANCE_ACT_SENT': 'Акт приёмки отправлен',
+            'ACCEPTANCE_ACT_SENDING_IN_PROCESS': 'Акт приёмки в процессе отправки',
+            'ACCEPTED_IN_EGAIS': 'Принята в ЕГАИС'
+        };
+        return statusMap[status] || status;
     }
 
     function generateDataMatrix(markCode) {
@@ -3134,7 +3171,6 @@ function fallbackCopyImage(canvas) {
         element.classList.remove('tz-loading', inTZ ? 'tz-no' : 'tz-yes');
         element.classList.add('tz-status-badge', inTZ ? 'tz-yes' : 'tz-no');
         
-        // Также обновляем кнопку ТЗ в том же контейнере
         const container = element.closest('.egais-buttons-container');
         const tzBtn = container?.querySelector('.tz-inline-btn');
         if (tzBtn) {
@@ -3187,28 +3223,492 @@ function fallbackCopyImage(canvas) {
         if (initializationInProgress || Date.now() - lastInitTime < INIT_COOLDOWN_MS) return;
         initializationInProgress = true;
         lastInitTime = Date.now();
-        try { handleExpandButtons(); addEgaisButtons(); addNomenclatureButtons(); addManualSearchButton(); addCheckOrdersButton(); }
+        try { handleExpandButtons(); addEgaisButtons(); addNomenclatureButtons(); addManualSearchButton(); addCheckOrdersButton(); addMappingsTab(); }
         finally { initializationInProgress = false; }
     }
 
     const isTargetPage = () => window.location.href.includes('https://dxbx.ru/fe/egais/rests');
-    // Проверяем оба варианта URL: обычный путь и hash-based роутинг
     const isInvoicePage = () => {
         const href = window.location.href;
         const hash = window.location.hash;
         const isMatch = href.includes('/app/edit/invoice/') || hash.includes('app/edit/invoice/');
-        console.log('[EGAIS] isInvoicePage check:', { href, hash, isMatch });
         return isMatch;
     };
+    
+    const isBottlePage = () => {
+        const href = window.location.href;
+        const hash = window.location.hash;
+        const isMatch = (href.includes('/app/edit/egaisbottle/') || hash.includes('app/edit/egaisbottle/')) &&
+                        !href.includes('egaisbottlerestreserve');
+        return isMatch;
+    };
+    
+    function initBottlePageDataMatrix() {
+        const tryCreate = (attempts = 0) => {
+            let markInput = document.getElementById('id_markInfo');
+            if (!markInput) {
+                markInput = document.querySelector('input[name="markInfo"]') ||
+                            document.querySelector('textarea[name="markInfo"]') ||
+                            document.querySelector('[id*="markInfo"]');
+            }
+            
+            if (!markInput) {
+                const labels = document.querySelectorAll('label, .ant-form-item-label, .form-label');
+                for (const label of labels) {
+                    if (label.textContent.includes('Марка') || label.textContent.includes('markInfo')) {
+                        const parent = label.closest('.ant-form-item, .form-group, .ant-row');
+                        if (parent) {
+                            markInput = parent.querySelector('input, textarea, .ant-input, span[class*="value"], div[class*="value"]');
+                            if (markInput) break;
+                        }
+                    }
+                }
+            }
+            
+            if (markInput) {
+                const markCode = markInput.value || markInput.textContent?.trim();
+                
+                if (markCode && markCode.length > 10) {
+                    createBottleDataMatrixUI(markCode, markInput);
+                } else if (attempts < 20) {
+                    setTimeout(() => tryCreate(attempts + 1), 500);
+                }
+            } else if (attempts < 20) {
+                setTimeout(() => tryCreate(attempts + 1), 500);
+            }
+        };
+        
+        setTimeout(() => tryCreate(), 1000);
+    }
+    
+    function createBottleDataMatrixUI(markCode, markInput) {
+        if (document.querySelector('.bottle-datamatrix-container')) {
+            return;
+        }
+        
+        const pageLegalPersonId = getBottleLegalPersonId();
+        if (pageLegalPersonId) {
+            legalPersonId = pageLegalPersonId;
+            GM_setValue('legalPersonId', legalPersonId);
+        }
+        
+        AuthState.init();
+        AuthUI.init();
+        AuthUI.check();
+        
+        GM_registerMenuCommand('🔐 Авторизация DXBX', () => AuthUI.showDialog());
+        GM_registerMenuCommand('🔄 Реавторизация', () => AuthUI.reauth());
+        
+        const container = createEl('div', 'bottle-datamatrix-container');
+        container.id = 'bottle-datamatrix-ui';
+        
+        const header = createEl('div', 'bottle-datamatrix-header');
+        const title = createEl('h4', 'bottle-datamatrix-title', '📦 DataMatrix марки');
+        header.appendChild(title);
+        
+        const content = createEl('div', 'bottle-datamatrix-content');
+        
+        const canvasWrapper = createEl('div', 'bottle-datamatrix-canvas-wrapper');
+        const canvas = createEl('canvas');
+        canvas.id = 'bottle-datamatrix-canvas';
+        canvasWrapper.appendChild(canvas);
+        content.appendChild(canvasWrapper);
+        
+        const actions = createEl('div', 'bottle-datamatrix-actions');
+        
+        const copyImageBtn = createButton({
+            text: '📋 Копировать',
+            variant: 'primary',
+            onClick: () => copyBottleDataMatrixImage(canvas, copyImageBtn)
+        });
+        
+        const downloadBtn = createButton({
+            text: '💾 Скачать',
+            variant: 'success',
+            onClick: () => downloadBottleDataMatrix(canvas, markCode)
+        });
+        
+        const copyMarkBtn = createButton({
+            text: '📝 Марка',
+            variant: 'muted',
+            onClick: () => {
+                navigator.clipboard.writeText(markCode).then(() => {
+                    copyMarkBtn.textContent = '✓';
+                    setTimeout(() => { copyMarkBtn.textContent = '📝 Марка'; }, 1500);
+                });
+            }
+        });
+        
+        actions.append(copyImageBtn, downloadBtn, copyMarkBtn);
+        content.appendChild(actions);
+        
+        const tzRow = createEl('div', 'bottle-datamatrix-actions');
+        
+        const tzStatusEl = createEl('span', 'bottle-tz-status tz-loading', '⏳ Проверка ТЗ...');
+        tzStatusEl.style.cursor = 'pointer';
+        tzStatusEl.title = 'Нажмите для авторизации';
+        tzStatusEl.addEventListener('click', () => {
+            if (!AuthState.getToken()) {
+                AuthUI.showDialog();
+            }
+        });
+        
+        const tzBtn = createButton({
+            text: '+ТЗ',
+            variant: 'accent',
+            onClick: async () => handleBottlePageTZClick(tzBtn, tzStatusEl, markCode)
+        });
+        tzBtn.dataset.markCode = markCode;
+        tzBtn.style.minWidth = '50px';
+        
+        const invoiceBtn = createButton({
+            text: '📄 Накладная',
+            variant: 'warning',
+            className: 'invoice-search-button',
+            title: 'Найти исходную накладную по марке',
+            onClick: () => searchInvoiceByMark(markCode)
+        });
+        
+        tzRow.append(tzStatusEl, tzBtn, invoiceBtn);
+        content.appendChild(tzRow);
+        
+        const markDetails = createEl('details');
+        markDetails.style.cssText = 'width:100%;margin-top:8px;text-align:left';
+        const markSummary = createEl('summary');
+        markSummary.style.cssText = 'cursor:pointer;font-size:11px;color:#666';
+        markSummary.textContent = 'Показать полную марку';
+        const markValue = createEl('div', 'bottle-datamatrix-mark', markCode);
+        markDetails.append(markSummary, markValue);
+        content.appendChild(markDetails);
+        
+        container.append(header, content);
+        
+        const formItem = markInput.closest('.ant-form-item, .form-group, .ant-row, .ant-card');
+        const insertTarget = formItem || markInput.parentNode;
+        
+        if (insertTarget && insertTarget.parentNode) {
+            insertTarget.parentNode.insertBefore(container, insertTarget.nextSibling);
+        } else {
+            const mainContent = document.querySelector('.ant-card-body, .main-content, form, .ant-form');
+            if (mainContent) {
+                mainContent.insertBefore(container, mainContent.firstChild);
+            }
+        }
+        
+        try {
+            bwipjs.toCanvas(canvas, {
+                bcid: 'datamatrix',
+                text: markCode,
+                scale: 3,
+                height: 30,
+                includetext: false
+            });
+        } catch (error) {
+            canvasWrapper.innerHTML = '<div class="text-error">Ошибка генерации: ' + error.message + '</div>';
+        }
+        
+        checkBottlePageTZStatus(markCode, tzStatusEl, tzBtn);
+    }
+    
+    async function checkBottlePageTZStatus(markCode, statusEl, tzBtn) {
+        try {
+            const lpId = legalPersonId || currentLegalPerson() || GM_getValue('legalPersonId');
+            const token = AuthState.getToken();
+            
+            if (!token) {
+                statusEl.textContent = '🔐 Авторизация';
+                statusEl.className = 'bottle-tz-status tz-no';
+                statusEl.style.cursor = 'pointer';
+                statusEl.title = 'Нажмите для авторизации';
+                tzBtn.disabled = true;
+                tzBtn.title = 'Требуется авторизация';
+                tzBtn.classList.add('egais-btn--muted');
+                tzBtn.classList.remove('egais-btn--accent', 'egais-btn--danger');
+                return;
+            }
+            
+            if (!lpId) {
+                statusEl.textContent = '⚠️ Нет ЮЛ';
+                statusEl.className = 'bottle-tz-status tz-no';
+                statusEl.style.cursor = 'pointer';
+                statusEl.title = 'Нажмите для авторизации';
+                tzBtn.disabled = true;
+                tzBtn.title = 'Не определено юридическое лицо';
+                tzBtn.classList.add('egais-btn--muted');
+                tzBtn.classList.remove('egais-btn--accent', 'egais-btn--danger');
+                return;
+            }
+            
+            statusEl.style.cursor = 'default';
+            statusEl.title = '';
+            tzBtn.disabled = false;
+            tzBtn.classList.remove('egais-btn--muted');
+            
+            const inTZ = await checkIfBottleInTZ(markCode, lpId);
+            
+            if (inTZ) {
+                statusEl.textContent = '✓ В ТЗ';
+                statusEl.className = 'bottle-tz-status tz-yes';
+                tzBtn.textContent = '-ТЗ';
+                tzBtn.title = 'Удалить из товарного зала';
+                tzBtn.classList.remove('egais-btn--accent');
+                tzBtn.classList.add('egais-btn--danger');
+                tzBtn.dataset.inTZ = 'true';
+            } else {
+                statusEl.textContent = '✗ Не в ТЗ';
+                statusEl.className = 'bottle-tz-status tz-no';
+                tzBtn.textContent = '+ТЗ';
+                tzBtn.title = 'Добавить в товарный зал';
+                tzBtn.classList.remove('egais-btn--danger');
+                tzBtn.classList.add('egais-btn--accent');
+                tzBtn.dataset.inTZ = 'false';
+            }
+        } catch (error) {
+            statusEl.textContent = '⚠️ Ошибка';
+            statusEl.className = 'bottle-tz-status tz-no';
+            tzBtn.disabled = false;
+            tzBtn.classList.remove('egais-btn--muted');
+            tzBtn.classList.add('egais-btn--accent');
+            tzBtn.textContent = '+ТЗ';
+            tzBtn.dataset.inTZ = 'false';
+        }
+    }
+    
+    async function checkIfBottleInTZ(markCode, lpId) {
+        const cacheKey = `${lpId}_${markCode}`;
+        if (bottleCache[cacheKey] !== undefined) {
+            return bottleCache[cacheKey];
+        }
+        
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
+            
+            const response = await fetch('https://dxbx.ru/app/egaisbarbottle/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                signal: controller.signal,
+                body: new URLSearchParams({
+                    draw: 1, start: 0, length: 1,
+                    model: 'egaisbarbottle',
+                    searchFormName: 'egaisbarbottle.default',
+                    simpleCrit: JSON.stringify({
+                        crits: [{
+                            attr: 'legalPerson', value: lpId, oper: 'EQUALS',
+                            clauses: [{ oper: 'AND', criterion: { attr: 'egaisBottle.markInfo', value: markCode, oper: 'EQUALS', clauses: [] } }]
+                        }]
+                    })
+                })
+            });
+            
+            clearTimeout(timeoutId);
+            
+            const data = await response.json();
+            const isInTZ = data.recordsTotal > 0;
+            bottleCache[cacheKey] = isInTZ;
+            return isInTZ;
+        } catch (error) {
+            return false;
+        }
+    }
+    
+    async function handleBottlePageTZClick(btn, statusEl, markCode) {
+        const isInTZ = btn.dataset.inTZ === 'true';
+        const origText = btn.textContent;
+        
+        const token = AuthState.getToken();
+        if (!token) {
+            notify('Требуется авторизация', 'error');
+            AuthUI.showDialog();
+            return;
+        }
+        
+        btn.disabled = true;
+        btn.textContent = '...';
+        
+        try {
+            if (isInTZ) {
+                await BartenderAPI.removeBottle(markCode);
+                notify('Бутылка удалена из ТЗ', 'success');
+                
+                updateBottleTZUI(statusEl, btn, false);
+            } else {
+                const volume = getBottleVolumeFromPage();
+                if (!volume) {
+                    notify('Не удалось определить объём бутылки', 'error');
+                    btn.disabled = false;
+                    btn.textContent = origText;
+                    return;
+                }
+                await BartenderAPI.addBottle(markCode, volume);
+                notify(`Бутылка добавлена в ТЗ (${volume} мл)`, 'success');
+                
+                updateBottleTZUI(statusEl, btn, true);
+            }
+            
+            const lpId = legalPersonId || currentLegalPerson() || GM_getValue('legalPersonId');
+            const cacheKey = `${lpId}_${markCode}`;
+            bottleCache[cacheKey] = !isInTZ; // Сразу обновляем кэш на ожидаемое значение
+            
+        } catch (error) {
+            notify('Ошибка: ' + error.message, 'error');
+            btn.textContent = '!';
+            btn.style.background = '#f5222d';
+            setTimeout(() => {
+                btn.textContent = origText;
+                btn.style.background = '';
+            }, 2000);
+        } finally {
+            btn.disabled = false;
+        }
+    }
+    
+    function updateBottleTZUI(statusEl, tzBtn, inTZ) {
+        if (inTZ) {
+            statusEl.textContent = '✓ В ТЗ';
+            statusEl.className = 'bottle-tz-status tz-yes';
+            tzBtn.textContent = '-ТЗ';
+            tzBtn.title = 'Удалить из товарного зала';
+            tzBtn.classList.remove('egais-btn--accent');
+            tzBtn.classList.add('egais-btn--danger');
+            tzBtn.dataset.inTZ = 'true';
+        } else {
+            statusEl.textContent = '✗ Не в ТЗ';
+            statusEl.className = 'bottle-tz-status tz-no';
+            tzBtn.textContent = '+ТЗ';
+            tzBtn.title = 'Добавить в товарный зал';
+            tzBtn.classList.remove('egais-btn--danger');
+            tzBtn.classList.add('egais-btn--accent');
+            tzBtn.dataset.inTZ = 'false';
+        }
+    }
+    
+    function getBottleLegalPersonId() {
+        let lpInput = document.getElementById('id_legalPerson');
+        if (lpInput && lpInput.value) {
+            return lpInput.value;
+        }
+        
+        lpInput = document.querySelector('input[name="legalPerson.id"]');
+        if (lpInput && lpInput.value) {
+            return lpInput.value;
+        }
+        
+        lpInput = document.querySelector('input[name="legalPerson"]');
+        if (lpInput && lpInput.value) {
+            return lpInput.value;
+        }
+        
+        lpInput = document.querySelector('input[id*="legalPerson"]');
+        if (lpInput && lpInput.value) {
+            return lpInput.value;
+        }
+        
+        const pageText = document.body.innerText;
+        const lpMatch = pageText.match(/Юр\.?\s*лицо[:\s]+[^(]+\((\d+)\s*\//i);
+        if (lpMatch) {
+            return lpMatch[1];
+        }
+        
+        return null;
+    }
+    
+    function getBottleVolumeFromPage() {
+        let volumeInput = document.getElementById('id_availableVolume');
+        if (volumeInput && volumeInput.value) {
+            const vol = parseInt(volumeInput.value);
+            if (!isNaN(vol) && vol > 0) {
+                return vol;
+            }
+        }
+        
+        volumeInput = document.querySelector('input[name="availableVolume"]');
+        if (volumeInput && volumeInput.value) {
+            const vol = parseInt(volumeInput.value);
+            if (!isNaN(vol) && vol > 0) {
+                return vol;
+            }
+        }
+        
+        const labels = document.querySelectorAll('label, .ant-form-item-label, td');
+        for (const label of labels) {
+            if (label.textContent.includes('Доступный объ') || label.textContent.includes('availableVolume')) {
+                const parent = label.closest('tr, .ant-form-item, .ant-row, .form-group');
+                if (parent) {
+                    const valueEl = parent.querySelector('input, td:last-child, span, .ant-form-item-control');
+                    if (valueEl) {
+                        const text = valueEl.value || valueEl.textContent;
+                        const vol = parseInt(text);
+                        if (!isNaN(vol) && vol > 0) {
+                            return vol;
+                        }
+                    }
+                }
+            }
+        }
+        
+        const pageText = document.body.innerText;
+        const volumeMatch = pageText.match(/объем:\s*(\d+[.,]?\d*)/i);
+        if (volumeMatch) {
+            const vol = Math.round(parseFloat(volumeMatch[1].replace(',', '.')) * 1000);
+            if (!isNaN(vol) && vol > 0) {
+                return vol;
+            }
+        }
+        
+        return null;
+    }
+    
+    async function copyBottleDataMatrixImage(canvas, button) {
+        try {
+            const bordered = document.createElement('canvas');
+            const ctx = bordered.getContext('2d');
+            bordered.width = canvas.width + 50;
+            bordered.height = canvas.height + 50;
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, bordered.width, bordered.height);
+            ctx.drawImage(canvas, 25, 25);
+            
+            bordered.toBlob(async blob => {
+                try {
+                    await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+                    button.textContent = '✓ Скопировано!';
+                    button.classList.replace('egais-btn--primary', 'egais-btn--success');
+                    setTimeout(() => {
+                        button.textContent = '📋 Копировать изображение';
+                        button.classList.replace('egais-btn--success', 'egais-btn--primary');
+                    }, 2000);
+                } catch {
+                    fallbackCopyImage(bordered);
+                    button.textContent = '✓ Скопировано!';
+                    setTimeout(() => { button.textContent = '📋 Копировать изображение'; }, 2000);
+                }
+            }, 'image/png');
+        } catch (error) {
+            button.textContent = '✗ Ошибка';
+            setTimeout(() => { button.textContent = '📋 Копировать изображение'; }, 2000);
+        }
+    }
+    
+    function downloadBottleDataMatrix(canvas, markCode) {
+        const bordered = document.createElement('canvas');
+        const ctx = bordered.getContext('2d');
+        bordered.width = canvas.width + 50;
+        bordered.height = canvas.height + 50;
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, bordered.width, bordered.height);
+        ctx.drawImage(canvas, 25, 25);
+        
+        const link = document.createElement('a');
+        link.download = `datamatrix_${markCode.substring(0, 20)}.png`;
+        link.href = bordered.toDataURL('image/png');
+        link.click();
+    };
 
-    // ==================== INVOICE TZ INTERFACE ====================
     const InvoiceTZInterface = {
         create() {
-            console.log('[EGAIS] InvoiceTZInterface.create() called');
             const invoiceData = this.parseInvoiceData();
-            console.log('[EGAIS] parseInvoiceData result:', invoiceData);
             if (!invoiceData) {
-                console.log('[EGAIS] No invoice data, aborting UI creation');
                 return;
             }
             
@@ -3250,11 +3750,9 @@ function fallbackCopyImage(canvas) {
             header.append(title, buttonsContainer);
             container.appendChild(header);
             
-            // Контейнер доступа
             const accessContainer = this.createAccessControl();
             container.appendChild(accessContainer);
             
-            // Список бутылок
             const bottleList = this.createBottleList(invoiceData.bottles);
             container.appendChild(bottleList);
             
@@ -3264,27 +3762,19 @@ function fallbackCopyImage(canvas) {
         },
         
         parseInvoiceData() {
-            console.log('[EGAIS] parseInvoiceData() called');
             try {
                 const buyerInput = document.getElementById('id_buyerLegalPerson');
-                console.log('[EGAIS] buyerInput element:', buyerInput, 'value:', buyerInput?.value);
                 if (!buyerInput?.value) {
-                    console.log('[EGAIS] No buyerInput value');
                     return null;
                 }
                 
                 const textarea = document.getElementById('id_invoiceRawBody');
-                console.log('[EGAIS] textarea element:', textarea, 'has value:', !!textarea?.value);
                 if (!textarea?.value) {
-                    console.log('[EGAIS] No textarea value');
                     return null;
                 }
                 
-                console.log('[EGAIS] Parsing JSON from textarea, length:', textarea.value.length);
                 const data = JSON.parse(textarea.value);
-                console.log('[EGAIS] Parsed invoice data, items count:', data?.items?.length);
                 if (!data?.items) {
-                    console.log('[EGAIS] No items in invoice data');
                     return null;
                 }
                 
@@ -3416,22 +3906,15 @@ function fallbackCopyImage(canvas) {
             statusEl.style.color = '#1890ff';
             
             try {
-                // Логируем полную марку для отладки
-                console.log('[EGAIS] handleSingle: bottle object:', bottle);
-                console.log('[EGAIS] handleSingle: mark length:', bottle.mark?.length, 'volume:', bottle.volume);
-                console.log('[EGAIS] handleSingle: full mark:', bottle.mark);
-                
                 if (!bottle.mark || bottle.mark.length < 50) {
                     throw new Error(`Марка слишком короткая: ${bottle.mark?.length} символов`);
                 }
                 
                 await BartenderAPI.addBottle(bottle.mark, bottle.volume);
-                console.log('[EGAIS] handleSingle: success');
                 statusEl.textContent = '✓ Успешно';
                 statusEl.style.color = '#52c41a';
                 btn.textContent = '✓';
             } catch (e) {
-                console.error('[EGAIS] handleSingle error:', e);
                 statusEl.textContent = '✗ ' + (e.message || 'Ошибка');
                 statusEl.style.color = '#f5222d';
                 btn.textContent = '!';
@@ -3446,10 +3929,8 @@ function fallbackCopyImage(canvas) {
                 return;
             }
 
-            console.log('[EGAIS] downloadMarksAsZip: starting with', bottles.length, 'bottles');
             notify(`Генерация ${bottles.length} DataMatrix...`, 'info');
 
-                // Use JSZip for archive creation (more compatible with userscript sandbox)
                 const loadJSZip = () => new Promise((resolve, reject) => {
                     const existing = window.JSZip || (typeof unsafeWindow !== 'undefined' && unsafeWindow.JSZip) || (typeof JSZip !== 'undefined' && JSZip);
                     if (existing) return resolve(existing);
@@ -3458,7 +3939,6 @@ function fallbackCopyImage(canvas) {
                     script.onload = () => {
                         const found = window.JSZip || (typeof unsafeWindow !== 'undefined' && unsafeWindow.JSZip) || (typeof JSZip !== 'undefined' && JSZip);
                         if (found) return resolve(found);
-                        // try bridge
                         try {
                             const bridge = document.createElement('script');
                             bridge.textContent = 'try{window.__JSZip_for_userscript = window.JSZip || this.JSZip;}catch(e){}';
@@ -3466,7 +3946,7 @@ function fallbackCopyImage(canvas) {
                             bridge.remove();
                             const bridged = window.__JSZip_for_userscript || (typeof unsafeWindow !== 'undefined' && unsafeWindow.__JSZip_for_userscript);
                             if (bridged) return resolve(bridged);
-                        } catch (e) { /* ignore */ }
+                        } catch (e) {  }
                         return reject(new Error('JSZip not available after load'));
                     };
                     script.onerror = () => reject(new Error('Не удалось загрузить JSZip'));
@@ -3482,14 +3962,11 @@ function fallbackCopyImage(canvas) {
             };
 
             try {
-                // Проверяем доступность bwipjs
                 if (typeof bwipjs === 'undefined') {
                     throw new Error('bwipjs не загружен');
                 }
-                console.log('[EGAIS] bwipjs available');
 
                 const JSZipCtor = await loadJSZip();
-                console.log('[EGAIS] JSZip available');
 
                 const entries = [];
                 let successCount = 0;
@@ -3500,7 +3977,6 @@ function fallbackCopyImage(canvas) {
                 for (let i = 0; i < bottles.length; i++) {
                     const bottle = bottles[i];
                     try {
-                        // Генерируем DataMatrix
                         const canvas = document.createElement('canvas');
                         canvas.width = canvas.height = canvasSize;
                         const ctx = canvas.getContext('2d');
@@ -3516,16 +3992,13 @@ function fallbackCopyImage(canvas) {
                             includetext: false
                         });
 
-                        // Конвертируем в base64
                         const dataUrl = canvas.toDataURL('image/png');
                         const base64Data = dataUrl.replace(/^data:image\/png;base64,/, '');
 
-                        // Создаём безопасное имя файла с номенклатурой
                         const safeNomenclature = (bottle.nomenclature || 'Неизвестно')
                             .replace(/[^a-zA-Zа-яА-ЯёЁ0-9\s]/gi, '')
                             .replace(/\s+/g, '_')
                             .substring(0, 50);
-                        // Prefer short code for filename (e.g., 30013138142)
                         const shortMark = typeof extractShortCode === 'function' ? extractShortCode(bottle.mark) : null;
                         const safeMark = (shortMark || bottle.mark || '').toString().replace(/[^a-zA-Z0-9]/g, '').substring(0, 15);
                         const fileName = `${String(i + 1).padStart(3, '0')}_${safeNomenclature}_${bottle.volume}ml_${safeMark}.png`;
@@ -3536,27 +4009,20 @@ function fallbackCopyImage(canvas) {
                         if (i % 5 === 4) await new Promise(r => setTimeout(r, 0));
 
                     } catch (e) {
-                        console.error(`[EGAIS] Error generating DataMatrix for bottle ${i}:`, e);
                         errors.push(`${i + 1}: ${e.message}`);
                     }
                 }
-
-                console.log('[EGAIS] Generated', successCount, 'images, errors:', errors.length);
 
                 if (successCount === 0) {
                     throw new Error('Не удалось сгенерировать ни одного изображения: ' + errors.join(', '));
                 }
 
-                // Добавляем текстовый файл со списком марок
                 const marksList = bottles.map((b, i) => `${i + 1}. ${b.nomenclature || 'Неизвестно'} | ${b.volume} мл | ${b.mark}`).join('\n');
                 entries.push({ name: 'datamatrix/marks_list.txt', data: typeof marksList === 'string' ? new TextEncoder().encode(marksList) : marksList });
 
-                console.log('[EGAIS] Starting ZIP generation..., entries:', entries.length);
                 notify('Создание ZIP архива...', 'info');
 
-                // Simple store-mode ZIP generator (no compression, very reliable in userscripts)
                 const createStoreZip = (entries) => {
-                    console.log('[EGAIS] createStoreZip: starting with', entries.length, 'entries');
                     const crc32Table = new Uint32Array(256);
                     for (let i = 0; i < 256; i++) {
                         let c = i;
@@ -3579,14 +4045,12 @@ function fallbackCopyImage(canvas) {
                         const dataLen = fileData.length;
                         const nameLen = nameBytes.length;
                         
-                        console.log('[EGAIS] ZIP entry:', entry.name.substring(0, 40), 'size:', dataLen);
                         files.push({ name: entry.name, nameBytes, data: fileData, crc, offset, nameLen, dataLen });
                         offset += 30 + nameLen + dataLen;
                     }
                     
                     const centralDirSize = files.reduce((sum, f) => sum + 46 + f.nameLen, 0);
                     const totalSize = offset + centralDirSize + 22;
-                    console.log('[EGAIS] ZIP structure: offset=', offset, 'centralDirSize=', centralDirSize, 'totalSize=', totalSize);
                     const result = new Uint8Array(totalSize);
                     let pos = 0;
                     
@@ -3645,23 +4109,17 @@ function fallbackCopyImage(canvas) {
                     view.setUint32(16, centralDirPos, true);
                     view.setUint16(20, 0, true);
                     
-                    console.log('[EGAIS] createStoreZip: created ZIP, size:', result.length);
                     return new Blob([result], { type: 'application/zip' });
                 };
 
                 try {
-                    console.log('[EGAIS] Creating ZIP with store mode...');
                     const blob = createStoreZip(entries);
-                    console.log('[EGAIS] ZIP blob created, size:', blob.size);
                     if (blob.size < 100) throw new Error('ZIP файл слишком маленький, возможно пустой');
 
                     const fileName = `datamatrix_${bottles.length}_marks_${new Date().toISOString().slice(0, 10)}.zip`;
-                    console.log('[EGAIS] Downloading as:', fileName);
                     if (typeof saveAs === 'function') {
-                        console.log('[EGAIS] Using saveAs from FileSaver');
                         saveAs(blob, fileName);
                     } else {
-                        console.log('[EGAIS] Using fallback download method');
                         const blobUrl = URL.createObjectURL(blob);
                         const downloadLink = document.createElement('a');
                         downloadLink.href = blobUrl;
@@ -3672,37 +4130,27 @@ function fallbackCopyImage(canvas) {
                         downloadLink.click();
                         setTimeout(() => { try { document.body.removeChild(downloadLink); URL.revokeObjectURL(blobUrl); } catch(e) {} }, 1500);
                     }
-                    console.log('[EGAIS] ZIP download initiated');
                     notify(`ZIP архив с ${successCount} DataMatrix скачан!`, 'success');
                 } catch (genErr) {
-                    console.error('[EGAIS] ZIP generation error:', genErr);
                     notify('Ошибка генерации ZIP: ' + genErr.message, 'error');
                 }
 
             } catch (e) {
-                console.error('[EGAIS] Error in downloadMarksAsZip:', e);
                 notify('Ошибка создания ZIP: ' + e.message, 'error');
             }
         }
     };
 
-    // Функция инициализации для страницы накладной
     const initInvoice = () => {
-        console.log('[EGAIS] initInvoice called, URL:', window.location.href, 'Hash:', window.location.hash);
         AuthState.init();
         AuthUI.init();
         AuthUI.check();
         GM_registerMenuCommand('🔐 Авторизация DXBX', () => AuthUI.showDialog());
         
-        // Пробуем создать интерфейс с задержкой и повторами
         const tryCreate = (attempts = 0) => {
-            console.log('[EGAIS] tryCreate Invoice UI, attempt:', attempts);
-            
-            // Поиск элементов - пробуем разные варианты
             let textarea = document.getElementById('id_invoiceRawBody');
             let buyerInput = document.getElementById('id_buyerLegalPerson');
             
-            // Если не найдены по id, пробуем по name
             if (!textarea) {
                 textarea = document.querySelector('textarea[name="invoiceRawBody"]') || 
                            document.querySelector('textarea[id*="invoiceRawBody"]');
@@ -3712,64 +4160,61 @@ function fallbackCopyImage(canvas) {
                              document.querySelector('input[id*="buyerLegalPerson"]');
             }
             
-            console.log('[EGAIS] Found elements - textarea:', !!textarea, 'buyerInput:', !!buyerInput);
-            
-            // Логируем все textarea и input на странице для отладки
-            if (attempts === 0) {
-                console.log('[EGAIS] All textareas:', document.querySelectorAll('textarea'));
-                console.log('[EGAIS] All inputs with "buyer":', document.querySelectorAll('input[id*="buyer"], input[name*="buyer"]'));
-                console.log('[EGAIS] All inputs with "legal":', document.querySelectorAll('input[id*="legal"], input[name*="legal"]'));
-            }
-            
             if (textarea && buyerInput) {
-                console.log('[EGAIS] Found invoice elements, textarea value length:', textarea.value?.length);
-                console.log('[EGAIS] buyerInput value:', buyerInput.value);
                 if (textarea.value && buyerInput.value) {
-                    console.log('[EGAIS] Both have values, creating UI');
                     InvoiceTZInterface.create();
                 } else if (attempts < 20) {
-                    console.log('[EGAIS] Elements found but no values yet, waiting...');
                     setTimeout(() => tryCreate(attempts + 1), 500);
                 }
             } else if (attempts < 20) {
                 setTimeout(() => tryCreate(attempts + 1), 500);
-            } else {
-                console.log('[EGAIS] Invoice elements not found after 20 attempts');
             }
         };
         
         setTimeout(() => tryCreate(), 1000);
     };
 
-    // Обработчик для SPA навигации (hash change)
     let lastInvoiceHash = '';
+    let lastBottleHash = '';
+    
     const handleHashChange = () => {
-        console.log('[EGAIS] Hash changed:', window.location.hash);
         if (isInvoicePage() && window.location.hash !== lastInvoiceHash) {
             lastInvoiceHash = window.location.hash;
-            // Удаляем старый интерфейс если есть
             const oldContainer = document.querySelector('.invoice-tz-container');
             if (oldContainer) oldContainer.remove();
-            // Инициализируем заново
             setTimeout(initInvoice, 500);
         }
     };
+    
+    const handleBottleHashChange = () => {
+        if (isBottlePage() && window.location.hash !== lastBottleHash) {
+            lastBottleHash = window.location.hash;
+            const oldContainer = document.querySelector('.bottle-datamatrix-container');
+            if (oldContainer) oldContainer.remove();
+            setTimeout(initBottlePageDataMatrix, 500);
+        }
+    };
 
-    // Если это страница накладной - инициализируем InvoiceTZInterface
     if (isInvoicePage()) {
         lastInvoiceHash = window.location.hash;
         document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', initInvoice) : initInvoice();
-        // Слушаем изменения hash для SPA навигации
         window.addEventListener('hashchange', handleHashChange);
         return;
     }
+    
+    if (isBottlePage()) {
+        lastBottleHash = window.location.hash;
+        document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', initBottlePageDataMatrix) : initBottlePageDataMatrix();
+        window.addEventListener('hashchange', handleBottleHashChange);
+        return;
+    }
 
-    // Слушаем hashchange даже если сейчас не на странице накладной
-    // (пользователь может перейти туда позже)
     window.addEventListener('hashchange', () => {
-        console.log('[EGAIS] Global hashchange:', window.location.hash);
         if (isInvoicePage()) {
             handleHashChange();
+        }
+        if (isBottlePage()) {
+            handleBottleHashChange();
         }
     });
 
@@ -3781,12 +4226,10 @@ function fallbackCopyImage(canvas) {
     function init() {
         legalPersonId = currentLegalPersonIdForCache = GM_getValue('legalPersonId');
         
-        // Инициализация Bartender API
         AuthState.init();
         AuthUI.init();
         AuthUI.check();
         
-        // Регистрация команд меню
         GM_registerMenuCommand('🔐 Авторизация DXBX', () => AuthUI.showDialog());
         GM_registerMenuCommand('🔄 Реавторизация', () => AuthUI.reauth());
         GM_registerMenuCommand('🚪 Выход', () => Auth.logout());
@@ -3796,7 +4239,6 @@ function fallbackCopyImage(canvas) {
             } else notify('Не авторизован', 'error');
         });
         
-        // Экспорт API для внешнего использования
         window.BartenderAPI = {
             addBottle: BartenderAPI.addBottle.bind(BartenderAPI),
             removeBottle: BartenderAPI.removeBottle.bind(BartenderAPI),
